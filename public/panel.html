@@ -67,13 +67,18 @@
 
     <!-- ========== 历史 ========== -->
     <div v-else-if="sideTab === 'history'">
-      <div class="hist-bar">
-        <div class="modes" style="height:22px">
-          <button style="height:22px" :class="{on: histFilter === 'all'}" @click="histFilter = 'all'">全部</button>
-          <button style="height:22px" :class="{on: histFilter === 'ocr'}" @click="histFilter = 'ocr'">识别</button>
-          <button style="height:22px" :class="{on: histFilter === 'detect'}" @click="histFilter = 'detect'">检测</button>
-          <button style="height:22px" :class="{on: histFilter === 'region'}" @click="histFilter = 'region'">区域</button>
-          <button style="height:22px" :class="{on: histFilter === 'edit'}" @click="histFilter = 'edit'">编辑</button>
+      <!-- 筛选条单独占一行，清空按钮放到第二行右侧，避免按钮被挤成竖排或截断 -->
+      <div class="hist-bar" style="flex-wrap:wrap;row-gap:4px">
+        <!-- 筛选按钮变多后不再挤成竖排：按钮文字不折行，放不下就横向滑动 -->
+        <div class="modes"
+          style="height:22px;flex:1 1 100%;min-width:0">
+          <button style="height:22px;flex:0 0 auto;white-space:nowrap" :class="{on: histFilter === 'all'}" @click="histFilter = 'all'">全部</button>
+          <button style="height:22px;flex:0 0 auto;white-space:nowrap" :class="{on: histFilter === 'ocr'}" @click="histFilter = 'ocr'">识别</button>
+          <button style="height:22px;flex:0 0 auto;white-space:nowrap" :class="{on: histFilter === 'detect'}" @click="histFilter = 'detect'">检测</button>
+          <button style="height:22px;flex:0 0 auto;white-space:nowrap" :class="{on: histFilter === 'region'}" @click="histFilter = 'region'">区域</button>
+          <button style="height:22px;flex:0 0 auto;white-space:nowrap" :class="{on: histFilter === 'audio'}" @click="histFilter = 'audio'">音频</button>
+          <button style="height:22px;flex:0 0 auto;white-space:nowrap" :class="{on: histFilter === 'ai-check'}" @click="histFilter = 'ai-check'" title="AI 读图校验记录">校验</button>
+          <button style="height:22px;flex:0 0 auto;white-space:nowrap" :class="{on: histFilter === 'edit'}" @click="histFilter = 'edit'">编辑</button>
         </div>
         <span style="flex:1"></span>
         <button class="mini2 danger" :disabled="!history.length" title="清空全部历史"
@@ -105,15 +110,48 @@
           <div class="op-imgs">
             <figure v-if="o.inputUrl">
               <img :src="o.inputUrl" loading="lazy" @click="previewImage(o.inputUrl, '输入图')" />
-              <figcaption>输入</figcaption>
+              <figcaption>{{ o.kind === 'ai-check' ? 'AI 当时看的图' : '输入' }}</figcaption>
             </figure>
             <figure v-if="o.outputUrl">
               <img :src="o.outputUrl" loading="lazy" @click="previewImage(o.outputUrl, '输出图（标注后）')" />
               <figcaption>输出 · {{ o.output?.count ?? 0 }} 框</figcaption>
             </figure>
           </div>
+
+          <!-- 音频生成：结果 + 真正发给豆包的提示词 / 参考音频 / 参数 -->
+          <div v-if="o.data?.scope === 'audio'" style="margin-top:8px;border-top:1px dashed #eee;padding-top:7px">
+            <audio v-if="o.audioUrl" controls preload="none" :src="o.audioUrl" style="width:100%;height:30px"></audio>
+            <div style="font-size:9.5px;color:#999;margin-top:3px">
+              {{ o.data.purpose === 'voiceprint' ? '声纹' : '对话音频' }} · {{ o.data.character || '' }}<template v-if="o.audio?.duration"> · {{ o.audio.duration }}s</template>
+            </div>
+            <div v-if="o.data.text" style="margin-top:5px;font-size:11px;color:#333;line-height:1.5">{{ o.data.text }}</div>
+            <div style="margin-top:6px;font-size:10px;color:#888">发给豆包的提示词</div>
+            <pre style="margin:3px 0 0;max-height:170px;overflow:auto;background:#fafafa;border:1px solid #f0f0f0;border-radius:4px;padding:6px;font:10px/1.5 'JetBrains Mono',monospace;white-space:pre-wrap;color:#444">{{ o.data.prompt }}</pre>
+            <div v-if="o.refAudioUrl" style="margin-top:6px">
+              <div style="font-size:10px;color:#888">参考音频 · {{ o.data.refAudio?.name }}</div>
+              <audio controls preload="none" :src="o.refAudioUrl" style="width:100%;height:30px;margin-top:2px"></audio>
+            </div>
+            <div v-else style="margin-top:6px;font-size:10px;color:#999">这次没有传参考音频</div>
+            <details style="margin-top:6px">
+              <summary style="font-size:10px;color:#888;cursor:pointer">其他参数</summary>
+              <pre style="margin:3px 0 0;max-height:190px;overflow:auto;background:#fafafa;border:1px solid #f0f0f0;border-radius:4px;padding:6px;font:10px/1.5 'JetBrains Mono',monospace;white-space:pre;color:#444">{{ JSON.stringify(o.data.request || {}, null, 1) }}</pre>
+            </details>
+          </div>
+
+          <!-- AI 读图校验：模型回答 + 当时的提示词和参数 -->
+          <div v-if="o.data?.scope === 'view'" style="margin-top:8px;border-top:1px dashed #eee;padding-top:7px">
+            <div style="font-size:10px;color:#888">
+              AI 回答 · {{ o.data.pass ? 'PASS' : '有问题' }}<template v-if="o.ms"> · {{ o.ms }}ms</template>
+            </div>
+            <pre style="margin:3px 0 0;max-height:220px;overflow:auto;background:#fafafa;border:1px solid #f0f0f0;border-radius:4px;padding:6px;font:10px/1.55 'JetBrains Mono',monospace;white-space:pre-wrap;color:#333">{{ o.data.answer }}</pre>
+            <details style="margin-top:6px">
+              <summary style="font-size:10px;color:#888;cursor:pointer">当时的提示词与参数</summary>
+              <div style="font-size:9.5px;color:#999;margin-top:3px">模型：{{ o.data.params?.model || '—' }} · 接口：{{ o.data.params?.baseUrl || '—' }}</div>
+              <pre style="margin:3px 0 0;max-height:200px;overflow:auto;background:#fafafa;border:1px solid #f0f0f0;border-radius:4px;padding:6px;font:10px/1.5 'JetBrains Mono',monospace;white-space:pre-wrap;color:#444">{{ o.data.prompt }}</pre>
+            </details>
+          </div>
           <!-- 手动改框不存图：用页面原图 + 当时的框坐标现场画 -->
-          <figure v-if="!o.outputUrl && o.pageUrl" class="op-manual">
+          <figure v-if="!o.outputUrl && o.pageUrl && o.kind !== 'ai-check' && o.data?.scope !== 'audio'" class="op-manual">
             <canvas ref="manualCanvas" :data-opid="o.id" class="op-canvas"></canvas>
             <figcaption class="op-canvas-cap">
               <template v-if="o.kind === 'box-add'">补的框：绿框</template>

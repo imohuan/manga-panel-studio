@@ -111,6 +111,7 @@ function pngSize(buf) {
 //       <session>/history/images/*.jpg  所有图片（压缩后），按内容哈希命名去重
 const HISTORY_DIR = (session) => path.join(sessionDir(session), 'history');
 const IMAGES_DIR = (session) => path.join(HISTORY_DIR(session), 'images');
+const AUDIO_DIR = (session) => path.join(HISTORY_DIR(session), 'audio');
 const OPS_FILE = (session) => path.join(HISTORY_DIR(session), 'ops.json');
 
 function readOps(session) {
@@ -186,6 +187,17 @@ function saveImage(session, buf, tag = 'img') {
   return name;
 }
 
+// 音频落盘：历史里的音频按内容哈希去重，避免重新生成后旧记录被覆盖。
+function saveAudio(session, buf, tag = 'audio', ext = '.mp3') {
+  const dir = AUDIO_DIR(session);
+  fs.mkdirSync(dir, { recursive: true });
+  const h = sha1(buf);
+  const name = `${tag}-${h}${ext}`;
+  const target = path.join(dir, name);
+  if (!fs.existsSync(target)) fs.writeFileSync(target, buf);
+  return name;
+}
+
 // 删除一条记录后，清理它独占的图片（仍被其他记录引用的保留）
 function pruneImages(session, removed) {
   const db = readOps(session);
@@ -194,6 +206,8 @@ function pruneImages(session, removed) {
     if (o.input?.image) used.add(o.input.image);
     if (o.output?.image) used.add(o.output.image);
     if (o.data?.modelInput) used.add(o.data.modelInput);
+    if (o.audio?.file) used.add(o.audio.file);
+    if (o.data?.refAudio?.file) used.add(o.data.refAudio.file);
     for (const t of o.data?.trace || []) if (t.image) used.add(t.image);
   }
   const candidates = [removed?.input?.image, removed?.output?.image, removed?.data?.modelInput,
@@ -202,6 +216,13 @@ function pruneImages(session, removed) {
     if (used.has(name)) continue;
     const f = path.join(IMAGES_DIR(session), path.basename(name));
     try { fs.rmSync(f, { force: true }); } catch {}
+  }
+
+  // 音频在 history/audio 下，单独按引用清理
+  const audioCandidates = [removed?.audio?.file, removed?.data?.refAudio?.file].filter(Boolean);
+  for (const name of audioCandidates) {
+    if (used.has(name)) continue;
+    try { fs.rmSync(path.join(AUDIO_DIR(session), path.basename(name)), { force: true }); } catch {}
   }
 }
 
@@ -779,11 +800,14 @@ http.createServer(async (req, res) => {
     if (m && req.method === 'GET') {
       const db = readOps(m[1]);
       const base = `/s/${encodeURIComponent(m[1])}/hist-img`;
+      const audioBase = `/s/${encodeURIComponent(m[1])}/hist-audio`;
       const pageInfo = new Map(listPages(m[1]).map((pg) => [pg.page, pg]));
       const ops = db.ops.slice().reverse().map((o) => ({
         ...o,
         inputUrl: o.input?.image ? `${base}/${o.input.image}` : null,
         outputUrl: o.output?.image ? `${base}/${o.output.image}` : null,
+        audioUrl: o.audio?.file ? `${audioBase}/${o.audio.file}` : null,
+        refAudioUrl: o.data?.refAudio?.file ? `${audioBase}/${o.data.refAudio.file}` : null,
         traceUrls: (o.data?.trace || []).map((t) => ({
           key: t.key, label: t.label, url: t.image ? `${base}/${t.image}` : null,
         })),
@@ -792,6 +816,57 @@ http.createServer(async (req, res) => {
         pageSize: pageInfo.has(o.page) ? [pageInfo.get(o.page).width, pageInfo.get(o.page).height] : null,
       }));
       return send(res, 200, { ops, total: db.ops.length });
+    }
+
+    // AI 读图校验（CLI view）：把预览图、原始提示词、模型参数和模型回答一起留进历史
+    m = p.match(/^\/api\/session\/([^/]+)\/check$/);
+    if (m && req.method === 'POST') {
+      const d = await body(req);
+      const page = String(d.page || '');
+      if (!page) return send(res, 400, { error: '缺少 page' });
+      let preview = null;
+      if (d.previewB64) {
+        try { preview = saveImage(m[1], Buffer.from(d.previewB64, 'base64'), 'view'); } catch {}
+      }
+      const pass = typeof d.pass === 'boolean' ? d.pass
+        : String(d.answer || '').trim().toUpperCase().startsWith('PASS');
+      const op = appendOp(m[1], {
+        kind: 'ai-check', by: d.by || 'cli', page,
+        ms: d.ms ?? null,
+        summary: `AI 读图校验：${pass ? 'PASS' : '有问题'}${d.model ? ' · ' + d.model : ''}`,
+        input: { image: preview, box: null, scope: 'view' },
+        output: { image: null, count: d.regions ?? null },
+        data: {
+          scope: 'view',
+          pass,
+          answer: String(d.answer || ''),
+          error: d.error || null,
+          prompt: d.prompt || null,
+          systemPrompt: d.systemPrompt || null,
+          params: d.params || null,
+          render: d.render || null,
+          regions: Array.isArray(d.regionsData) ? d.regionsData : null,
+        },
+      });
+      return send(res, 200, { ok: true, opId: op.id });
+    }
+
+    // 分镜 md：右侧面板「分镜」tab 用。只读，按页返回原文，
+    // 渲染交给前端（public/vendor/marked.min.js），这里只负责取文件。
+    m = p.match(/^\/api\/session\/([^/]+)\/storyboard$/);
+    if (m && req.method === 'GET') {
+      const dir = sessionDir(m[1]);
+      if (!fs.existsSync(dir)) return send(res, 200, { pages: [] });
+      const pages = fs.readdirSync(dir)
+        .filter((f) => /^[^/\\]+\.md$/i.test(f))
+        .sort()
+        .map((f) => {
+          const file = path.join(dir, f);
+          const st = fs.statSync(file);
+          return { page: path.basename(f, '.md'), md: fs.readFileSync(file, 'utf8'),
+                   size: st.size, mtime: st.mtime.toISOString() };
+        });
+      return send(res, 200, { pages });
     }
 
     // 删除单条历史（顺带清理不再被引用的图片）
@@ -847,6 +922,16 @@ http.createServer(async (req, res) => {
       return fs.createReadStream(f).pipe(res);
     }
 
+    // 历史里的音频（生成结果 / 参考音频）
+    m = p.match(/^\/s\/([^/]+)\/hist-audio\/([^/]+)$/);
+    if (m) {
+      const f = path.join(AUDIO_DIR(m[1]), path.basename(m[2]));
+      if (!fs.existsSync(f)) return send(res, 404, { error: 'no audio' });
+      const type = { '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.opus': 'audio/ogg' }[path.extname(f).toLowerCase()] || 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'max-age=600' });
+      return fs.createReadStream(f).pipe(res);
+    }
+
     // 检查图渲染：灰度原图 + 参考线 + 框叠加，参数见 render_check.py
     if (p === '/render' && req.method === 'GET') {
       const args = JSON.stringify(Object.fromEntries(url.searchParams));
@@ -870,6 +955,8 @@ http.createServer(async (req, res) => {
       readCharactersRaw, normalizeCharacters, updateCharacter,
       charVoicesView, readAudioScripts, callDoubao, safeToolName, findRefPath,
       cleanBaseUrl, maskKey, loadDoubaoAuth, ROOT,
+      // 音频生成也要留历史：和识别记录放在同一个 history/ops.json
+      appendOp, saveAudio, sha1,
     })) return;
 
     const f = p === '/' ? path.join(ROOT_DIR, 'public/index.html') : path.join(ROOT_DIR, 'public', p.slice(1));

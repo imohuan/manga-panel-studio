@@ -261,10 +261,28 @@ async function callDoubao(prompt, refPath) {
     audio_config: { format: 'mp3', sample_rate: 44100 },
     watermark: {},
   };
+  // 留一份「真正发出去的请求」：提示词、参考音频、其他参数，历史里要能看懂当时怎么生成的。
+  const request = {
+    url: DOUBAO_URL,
+    method: 'POST',
+    headers: ['Content-Type', 'X-Api-Request-Id', '鉴权头（不记录 key）'],
+    model: payload.model,
+    text_prompt: payload.text_prompt,
+    audio_config: payload.audio_config,
+    watermark: payload.watermark,
+    references: [],
+  };
+  let refBuffer = null;
   if (refPath) {
     const buf = await fs.promises.readFile(refPath);
     if (buf.length > 10 * 1024 * 1024) throw new Error('参考音频超过 10MB 上限');
+    refBuffer = buf;
     payload.references = [{ audio_data: buf.toString('base64') }];
+    request.references = [{
+      audio_data: '（base64 略，原文件已存进历史）',
+      file: path.basename(refPath),
+      bytes: buf.length,
+    }];
   }
   const resp = await fetch(DOUBAO_URL, {
     method: 'POST',
@@ -280,7 +298,13 @@ async function callDoubao(prompt, refPath) {
   }
   const b64 = data.audio || data.data;
   if (!b64) throw new Error('豆包未返回音频: ' + (data.message || text.slice(0, 200)));
-  return { buffer: Buffer.from(b64, 'base64'), duration: data.duration || null };
+  return {
+    buffer: Buffer.from(b64, 'base64'),
+    duration: data.duration || null,
+    request,
+    refBuffer,
+    refPath,
+  };
 }
 
 function safeToolName(s) {

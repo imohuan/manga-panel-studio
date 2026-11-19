@@ -9,7 +9,7 @@ export async function handleToolRoutes(req, res, p, url, ctx) {
           openaiListModels, checkOpenaiModel, doubaoTts, translatorPing,
           loadDoubaoAuth, readCharactersRaw, normalizeCharacters, updateCharacter,
           charVoicesView, readAudioScripts, callDoubao, safeToolName,
-          cleanBaseUrl, maskKey, ROOT } = ctx;
+          cleanBaseUrl, maskKey, ROOT, appendOp, saveAudio, sha1 } = ctx;
   try {
     // ---------- 设置界面 ----------
     if (p === '/api/settings' && req.method === 'GET') {
@@ -196,7 +196,8 @@ export async function handleToolRoutes(req, res, p, url, ctx) {
         const refTag = String(b.ref || '').replace('@', '');
         outName = safeToolName('dlg_' + (b.page || 'x') + '_' + (refTag || Date.now()) + '_' + b.name) + '.mp3';
       }
-      const result = await callDoubao(prompt, b.purpose === 'dialogue' ? await findRefPath(session, b.name) : null);
+      const refPath = b.purpose === 'dialogue' ? await findRefPath(session, b.name) : null;
+      const result = await callDoubao(prompt, refPath);
       fs.writeFileSync(path.join(voicesDir, outName), result.buffer);
       if (b.purpose === 'voiceprint') {
         await updateCharacter(session, b.name, {
@@ -204,11 +205,51 @@ export async function handleToolRoutes(req, res, p, url, ctx) {
           final_ref_audio: outName,
         });
       }
+      // 历史：把真正发给豆包的提示词、参考音频和其他参数一起存下来
+      let opId = null;
+      if (appendOp) {
+        const audioFile = saveAudio(session, result.buffer, 'gen');
+        let refAudio = null;
+        if (result.refBuffer) {
+          const ext = path.extname(result.refPath || '').toLowerCase() || '.mp3';
+          refAudio = {
+            file: saveAudio(session, result.refBuffer, 'ref', ext),
+            name: path.basename(result.refPath || ''),
+            bytes: result.refBuffer.length,
+          };
+        }
+        const op = appendOp(session, {
+          kind: b.purpose === 'voiceprint' ? 'audio-vp' : 'audio-dlg',
+          by: 'ui', page: b.page || null,
+          ms: null,
+          summary: b.purpose === 'voiceprint'
+            ? `生成声纹：${b.name}${result.duration ? ' · ' + result.duration + 's' : ''}`
+            : `生成对话：${b.name} · ${String(b.text || '').slice(0, 16)}`,
+          input: { image: null, box: null, scope: 'audio' },
+          output: { image: null, count: null },
+          audio: { file: audioFile, url: `/voices/${encodeURIComponent(session)}/${encodeURIComponent(outName)}`, duration: result.duration ?? null },
+          data: {
+            scope: 'audio',
+            purpose: b.purpose,
+            character: b.name,
+            text: b.text || null,
+            prompt,
+            performance: b.performance || null,
+            tone: b.tone || null,
+            ref: b.ref || null,
+            request: result.request,
+            warning,
+            refAudio,
+          },
+        });
+        opId = op.id;
+      }
       return send(res, 200, {
         ok: true,
         url: '/voices/' + encodeURIComponent(session) + '/' + encodeURIComponent(outName),
         duration: result.duration,
         warning,
+        opId,
       });
     }
 

@@ -42,7 +42,9 @@ createApp({
     const histFilter = ref('all');
     const ICON = { ocr: 'document_scanner', 'ocr-box': 'select_all', detect: 'crop_free',
       'box-add': 'add_box', 'box-del': 'delete', 'box-edit': 'edit',
-      'box-clear': 'delete_sweep', 'box-erase': 'ink_eraser' };
+      'box-clear': 'delete_sweep', 'box-erase': 'ink_eraser',
+      'audio-vp': 'graphic_eq', 'audio-dlg': 'record_voice_over',
+      'ai-check': 'visibility' };
     const MODE_LABEL = {
       'detect-page': '整页找框', 'detect-region': '区域找框',
       'ocr-page': '整页识别', 'ocr-region': '区域识别', 'ocr-boxes': '框内文字',
@@ -1453,7 +1455,9 @@ function openToolDialog(kind) {
     }
     const filteredHistory = computed(() => {
       if (histFilter.value === 'all') return history.value;
-      if (histFilter.value === 'edit') return history.value.filter((o) => o.kind.startsWith('box-'));
+      if (histFilter.value === 'edit') return history.value.filter((o) => String(o.kind).startsWith('box-'));
+      // 音频历史：声纹 + 对话音频都归到这一栏，和识别记录分开展示
+      if (histFilter.value === 'audio') return history.value.filter((o) => String(o.kind).startsWith('audio-'));
       if (histFilter.value === 'region') {
         return history.value.filter((o) => o.data?.scope === 'region' || o.data?.scope === 'box');
       }
@@ -1468,6 +1472,8 @@ function openToolDialog(kind) {
     // 卡片里直接展示识别出的文字（框内识别 / 区域识别 / 整页识别都适用）
     function opTexts(o) {
       const d = o?.data || {};
+      // AI 读图校验的 regions 只是「当时送给模型的框数据」，正文已在回答里判断过，不再重复铺一遍
+      if (d.scope === 'view') return [];
       const out = [];
       for (const b of d.boxes || []) {
         const t = (b?.text || '').trim();
