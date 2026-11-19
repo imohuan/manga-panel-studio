@@ -44,6 +44,7 @@ node scripts/coord.mjs release public/canvas.js
 | --- | --- | --- | --- |
 | 2026-11-19 | 协调 | 建立认领工具和本表，存快照 tag `coord-snapshot-20261119` | `node scripts/coord.mjs status` |
 | 2026-11-19 | 协调 | 发现右侧面板任务在 index.html 删掉了多选任务的 kbd.hk / sel-count 样式，已按原样恢复（2ea95ee） | 页面源码里三类选择器都在 |
+| 2026-11-19 | 多选框 · 快捷键 | `canvas.js`：Shift 拖动框选 / Shift 点选加减、多选状态 `selExtra`、I/O/P 快捷键、框内文字批量提交、Del 批量删除、导出 `stepBox`/`jumpToIndex`。`panel.html` 只改三个按钮（快捷键角标 + 多选计数）。提交 443947c | `node test/verify-multiselect.mjs` 14 项全过、`node test/verify-panel-smoke.mjs` 5 项全过、`node scripts/health-check.mjs` 全部打勾 |
 
 ## 已知问题
 
