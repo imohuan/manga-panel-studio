@@ -14,8 +14,8 @@ metadata:
 
 ### 本技能建立在 npm 包 manga-panel-studio 之上
 
-技能装好后，**先确认应用本体已安装**。技能只有说明书和 CLI，
-画布服务（7788）由 npm 包提供，没有它整套流程都跑不起来：
+技能装好后，**先确认应用本体已安装**。画布服务（7788）由 npm 包提供，
+没有它整套流程都跑不起来：
 
     npm list -g manga-panel-studio   # 有输出 = 已安装
 
@@ -23,15 +23,12 @@ metadata:
 
     npm install -g manga-panel-studio
 
-装好后用包自带的命令启动/检查服务，**不要**去 node server/canvas.mjs
-（那是源码开发方式，npm 安装的用户没有 server/ 目录）：
+装好后用包自带的命令启动/检查服务：
 
     manga-panel-studio          # 启动画布服务（前台运行）
     manga-panel-studio check    # 查 7788 / 5009 两个服务的状态
 
-如果用户是从源码克隆的仓库（存在 server/canvas.mjs），才可以
-`node <仓库>/server/canvas.mjs` 或 `<仓库>/start.bat` 启动。
-判断方法：`manga-panel-studio check` 通了就直接用，别纠结是哪种安装方式。
+判断方法：`manga-panel-studio check` 通了就直接用。
 
 ### 第一步：看一眼配置有没有填
 
@@ -97,15 +94,14 @@ Python 解释器从 ~/.manga-panel-studio/settings.json 的 translator.projectRo
 
 **服务（设置与音频已合并进主服务，单端口 7788）**
 
-    manga-panel-studio          # npm 安装的用户这样启动
+    manga-panel-studio          # 启动画布服务
     manga-panel-studio check    # 探活 7788 / 5009
-    # 源码开发才用： node <仓库>/server/canvas.mjs 或 <仓库>/start.bat
     # OCR 服务由画布服务按需调起，端口 5009；Python 解释器来自 settings 的 translator.projectRoot
 
-- 主服务 server/canvas.mjs（7788）：前后端一体。静态页面、会话管理、框 CRUD、
+- 主服务（7788）：前后端一体。静态页面、会话管理、框 CRUD、
   SSE 广播、检查图 /render、任务队列（调 OCR 服务）、设置 API、音频管理 API。
-  模型调用全部在 ocr_service.py，主服务不含 OCR 逻辑。
-- OCR 服务 server/ocr_service.py（5009）：mask-column 算法。
+  模型调用全部在 OCR 服务里，主服务不含 OCR 逻辑。
+- OCR 服务（5009）：mask-column 算法。
   接口：/detect /ocr /detect/region /ocr/region /ocr/box /ocr/batch，/health 探活。
 - 旧技能 manga-voice-pipeline（manga_cli.py + 5003 服务）已废弃，不再使用。
 
@@ -677,8 +673,8 @@ md 和 audio_scripts **都没有「骨架」这一步**。脚本能生成的东�
 - 检查图读坐标：刻度标注的就是原始像素值，不用自己换算；裁剪后左上角标 x/y 偏移。
 - OCR 服务刚启动 /health 可能 20-40 秒后才通，别重复启动。
 - Windows 控制台先设 $env:PYTHONIOENCODING='utf-8' 再跑 CLI。
-- 不要修改主项目 server/、public/、sessions/ 数据；设置与音频页面已合并进主服务
-  （tools/ 下的独立旧服务已移除）。
+- 不要直接修改 sessions/ 里的数据文件（一切写入走画布 HTTP 接口，才能留历史、
+  触发前端刷新）；设置与音频页面已合并进主服务。
 - 说话人判断靠画面证据（气泡尾巴、视线、张嘴），拿不准就写「未知角色A」。
 - settings.json 缺项时不要硬着头皮跑 OCR / 配音：先让用户在 /settings.html 填好。
   doctor 会告诉你具体缺哪几项，缺 key 的报错一般是 401 或「还没保存豆包 API key」。
