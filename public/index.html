@@ -46,11 +46,21 @@
   .detail-foot .foot-title { display: flex; align-items: center; gap: 6px;
     font-size: 11px; color: #888; margin-bottom: 6px; }
   .detail-foot .foot-title .mono { color: #666; }
-  .detail-foot .kit-textarea { resize: none; }
+  .detail-foot .kit-textarea { resize: none; max-height: 132px; overflow: auto; }
   /* 列表标题贴着滚动区顶部，滚下去也看得见「区域 / 清空」 */
   .box-head.sticky { position: sticky; top: 0; z-index: 1; background: #fff;
     padding: 6px 0; margin: 12px 0 6px; }
   .detail-home { padding: 12px; }
+  /* 顶部第二行：当前框编号 + 跳转输入框 */
+  .jump-bar { display: flex; align-items: center; gap: 6px; margin-top: 8px;
+    font-size: 11px; color: #888; }
+  .jump-bar .now { font-family: "JetBrains Mono", monospace; color: #333; }
+  .jump-bar .sp { flex: 1; }
+  .jump-bar input { width: 62px; height: 22px; padding: 0 6px; font-size: 11px;
+    font-family: "JetBrains Mono", monospace; text-align: center;
+    border: 1px solid #e0e0e0; border-radius: 4px; outline: none; color: #333;
+    background: #fafafa; }
+  .jump-bar input:focus { border-color: #111; background: #fff; }
   .thumb-wrap { position: relative; width: 100%; }
   .thumb { width: 100%; border: 1px solid #e5e5e5; border-radius: 4px; display: block; }
   .meta { font-size: 11px; color: #888; line-height: 1.9; margin-top: 8px; }
@@ -60,6 +70,15 @@
     gap: 6px; min-width: 0; }
   .box-item:hover { border-color: #c9c9c9; background: #fafafa; }
   .box-item.on { border-color: #111; background: #f7f7f7; }
+  /* Shift 多选：附加框用蓝色虚线边；主框保持深色实线，一眼能分辨 */
+  .box-item.on.main { border-color: #111; background: #f7f7f7; }
+  .box-item.on:not(.main) { border-color: #2563eb; border-style: dashed; background: #f2f6ff; }
+  /* 按钮上的快捷键小角标 */
+  .actions kbd.hk { font: 600 9px "JetBrains Mono", monospace; color: #999; background: #f2f2f2;
+    border-radius: 3px; padding: 0 3px; line-height: 13px; }
+  .actions .kit-btn:disabled kbd.hk { color: #c9c9c9; background: #f7f7f7; }
+  .actions .sel-count { align-self: center; font-size: 10.5px; color: #2563eb;
+    white-space: nowrap; flex: 0 0 auto; }
   .box-item .idx { font: 600 10px "JetBrains Mono", monospace; color: #999; flex: 0 0 auto; }
   .box-item .txt { color: #222; word-break: break-all; flex: 1; min-width: 0; }
   .box-item .txt.empty { color: #bbb; font-style: italic; }
@@ -235,6 +254,20 @@
   .op-imgs img { width: 100%; border: 1px solid #f0f0f0; border-radius: 4px; display: block;
     cursor: zoom-in; background: #fafafa; }
   .op-imgs figcaption { font-size: 9.5px; color: #999; text-align: center; margin-top: 2px; }
+  /* 手动改框：现场画的标注图 */
+  .op-manual { margin: 6px 0 0; }
+  .op-canvas { display: block; width: 100%; max-width: 320px; border: 1px solid #f0f0f0;
+    border-radius: 4px; background: #fafafa; cursor: zoom-in; }
+  /* 模型内部步骤：2 列小图，点开看大图 */
+  .trace-block { margin-top: 8px; border-top: 1px dashed #eee; padding-top: 7px; }
+  .trace-head { font-size: 10px; color: #999; margin-bottom: 5px; }
+  .trace-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .trace-grid figure { margin: 0; min-width: 0; }
+  .trace-grid img { width: 100%; border: 1px solid #f0f0f0; border-radius: 4px;
+    display: block; cursor: zoom-in; background: #fafafa; }
+  .trace-grid figcaption { font-size: 9px; color: #999; margin-top: 2px; line-height: 1.4;
+    overflow: hidden; text-overflow: ellipsis; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .op-json { margin-top: 8px; border-top: 1px dashed #eee; padding-top: 6px; }
   .json-head { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: #888; }
   .json-head .sp { flex: 1; }
@@ -338,6 +371,7 @@
   </div>
     <div class="kbd-hint">
       <span><b>Q</b> 框选</span><span><b>E</b> 识别框</span><span><b>D</b> 橡皮</span><span><b>Esc</b> 平移</span>
+      <span><b>Shift</b> 多选</span><span><b>I</b> 找框</span><span><b>O</b> 识别</span><span><b>P</b> 框内</span>
       <span><b>F</b> 适应</span><span><b>Del</b> 删除</span>
     </div>
   </header>
