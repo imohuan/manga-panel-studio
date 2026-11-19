@@ -49,6 +49,7 @@ node scripts/coord.mjs release public/canvas.js
 | 2026-11-19 | 历史记录 | 中间图落盘、图片格式修正、还原到这一步（56a7e53、099c037） | 历史卡片能显示中间图并可还原 |
 | 2026-11-19 | 历史记录 | 展开区说明文字统一为面板小字（9.5px/Geist，正文 11px）；CLI 删框记录框坐标（c0ff2bb） | `health-check` 全过，浏览器实测字号 9.5px |
 | 2026-11-19 | 画布下拉 | 左上角原生 `<select>` 换成 UIKit `kit-select`（搜索、键盘上下选择、点击外部/Esc 关闭），`canvas.js` 增加 `sessionOptions` 并在空值时不清空画布（0b0ed5b） | 浏览器点开/搜索/切换画布正常，控制台无报错；`verify-multiselect` 14 项、`verify-panel-smoke` 5 项、`health-check` 全过 |
+| 2026-11-19 | 音频弹窗 | 「音频」按钮打开 `/audio.html?s=当前画布`；音频页优先读 `?s=`，切换会话后同步写回地址栏（8cf26c7） | 浏览器实测 Demo2/Demo3 打开即对应画布，刷新后仍一致，控制台无报错；`health-check`、`verify-panel-smoke` 全过 |
 
 ## 事故记录：暂存区被两个对话共用
 
