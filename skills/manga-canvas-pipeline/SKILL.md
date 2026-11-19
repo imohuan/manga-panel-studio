@@ -31,6 +31,8 @@ metadata:
   然后用浏览器打开 **http://127.0.0.1:7788/settings.html**，
   doctor 也会自己打开。告诉用户缺哪几项、设置页已打开，等用户填完再继续。
   不要猜 key，也不要往 settings.json 里写假值。
+  如果页面没自己弹出来，就用 browser-control 技能新建标签页打开这个地址
+  （它走用户的 Chrome）；打开后用 `tab.markDeliverable()` 留住，方便用户填写。
 
 要检查的配置一共五项：OpenAI 的 Base URL、API Key、模型；豆包 API Key；
 OCR 服务地址。
