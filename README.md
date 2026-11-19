@@ -1,4 +1,4 @@
-# 漫画画布 · comic-canvas
+# 漫画分镜工作室 · manga-panel-studio
 
 无限画布式的漫画 OCR 校对与配音流水线：漫画页平铺在画布上，文字框跟着图片缩放、平移；
 AI 通过 HTTP 接口改框，前端用 SSE 实时刷新。一张漫画从「识别」到「能配音」的全过程，
@@ -127,7 +127,7 @@ GET    /events                                SSE：画布变动实时推送
 目标是用一条命令装进 Codex / Claude Code 等支持 Agent Skills 的工具：
 
 ```bash
-npx skills add <owner>/comic-canvas --skill manga-canvas-pipeline
+npx skills add <owner>/manga-panel-studio --skill manga-panel-studio
 ```
 
 现状与限制，请先读 [docs/skill-install-plan.md](docs/skill-install-plan.md)：
@@ -158,7 +158,7 @@ settings.json               模型地址、密钥、豆包配置（已被 .gitig
 
 ## 文档
 
-- [技能安装改造方案](docs/skill-install-plan.md)
+- [技能安装改造方案（含名字候选）](docs/skill-install-plan.md)
 - [安装规范调研](docs/research-skill-install.md)
 - [多人协作规则](docs/coordination.md)
 - [UI 组件说明](docs/uikit_readme.md)

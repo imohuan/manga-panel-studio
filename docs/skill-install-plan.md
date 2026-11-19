@@ -1,7 +1,13 @@
 # 把 comic-canvas 做成「可安装技能」的改造方案
 
-> 状态：**只调研，未改代码**。本文是方案，等你确认后再分阶段实施。
-> 日期：2026-11-19。调研依据见 [research-skill-install.md](research-skill-install.md)。
+> 状态：**v2，按 2026-11-19 的反馈修订**（改名、依赖归属、npm/GitHub 发布方式）。
+> 调研依据见 [research-skill-install.md](research-skill-install.md)。
+>
+> 反馈确认的三件事：
+> 1. 名字重新起（comic-canvas / manga-canvas 只是占位，见第八节）；
+> 2. manga-image-translator 是外部 GitHub 项目，用户目录存在就直接用，
+>    不存在时由 agent 按说明克隆安装；
+> 3. 旧数据不做迁移展示，功能上直接支持用户数据目录即可。
 
 ## 一、先把结论说清楚
 
@@ -136,14 +142,45 @@ COMIC_CANVAS_HOME（可选）
 | 文件:行 | 现在 | 改成 |
 | --- | --- | --- |
 | server/canvas.mjs:41 | 写死 sessions 绝对路径 | path.join(DATA_HOME, 'sessions') |
-| server/canvas.mjs:43 | 写死 manga-image-translator 的 python | 环境变量 COMIC_CANVAS_PYTHON，回退 PATH |
+| server/canvas.mjs:43 | 写死 manga-image-translator 的 python | 环境变量 MANGA_TRANSLATOR_ROOT，从中推导 python.exe |
 | server/canvas.mjs:44 | 写死 ffmpeg | 先用 PATH，再回退绝对路径 |
 | server/tools_helpers.js:11-13 | 写死项目根、sessions、settings | 同上，统一由 DATA_HOME 推导 |
 | server/render_check.py:32 | 写死 sessions | 环境变量 COMIC_CANVAS_HOME |
 | server/render_check.py:113 | 写死 msyh.ttc | 多候选字体 + 找不到时 load_default() |
 | server/ocr_service.py:37,40 | 写死 MT 目录并 chdir | 环境变量 MANGA_TRANSLATOR_ROOT，缺失时报错 |
 | skills/.../canvas_cli.py:45-48 | 写死 ROOT/SESSIONS/OCR_PY/日志 | COMIC_CANVAS_HOME + COMIC_CANVAS_ROOT 推导 |
-| start.bat:6 | 写死 OCR_PY | 读环境变量，没设时提示 |
+| start.bat:6 | 写死 OCR_PY | 从 MANGA_TRANSLATOR_ROOT 推导，缺失时提示 |
+
+## 五点五、manga-image-translator 怎么定位与安装
+
+它是外部 GitHub 项目（zyddnys/manga-image-translator，GPL-3.0，自带 requirements.txt，
+模型在运行时自动下载到其 ./models）。设计原则：**能用就不动，缺了就让 agent 装**。
+
+解析顺序（画布服务和技能 CLI 共用同一套规则）：
+
+1. 环境变量 MANGA_TRANSLATOR_ROOT 显式指定；
+2. settings.json 里的 translator.projectRoot（这个字段现在已经存在但没人读，正好启用它）；
+3. 常见默认位置探测：~/manga-image-translator；
+4. 都没有 → 返回明确的「未找到」状态，由调用方决定下一步。
+
+找到后从中推导 python 解释器（py310/python.exe 优先，回退 venv、系统 python），
+只做只读使用：sys.path 指过去、模型目录随包推导，不往里面写任何文件。
+
+未找到时，SKILL.md 给 agent 一段安装指引（由 agent 执行，用户确认后进行）：
+
+```text
+1. git clone https://github.com/zyddnys/manga-image-translator.git ~/manga-image-translator
+2. python -m venv venv && pip install -r requirements.txt
+   （Windows 需要 VS Build Tools；GPU 加速需按 pytorch.org 装 CUDA 版 torch）
+3. 首次跑识别时模型自动下载到 manga-image-translator/models/（约 490 MB 起）
+4. 装完设置 MANGA_TRANSLATOR_ROOT 指向该目录
+```
+
+本项目**不 fork、不打包、不自动静默下载** manga-image-translator：
+
+- 它是 GPL 项目，混入自己的 npm 包会有许可证义务；
+- 2 GB 模型不该藏在安装流程里；
+- agent 按上面四步引导安装，等于把「装依赖」变成一次用户可见的操作。
 
 ## 六、发布前必须先处理的安全问题
 
@@ -186,33 +223,95 @@ COMIC_CANVAS_HOME（可选）
 - 验证：npx skills add 本仓库 --skill manga-canvas-pipeline -a codex -y，
   在干净目录里按 SKILL.md 指引能完成 doctor / 启动 / 建画布。
 
-### 阶段 3：npm 发布（可选，半天）
+### 阶段 3：发布 GitHub + npm（半天）
 
-- npm publish，让用户 npm i -g comic-canvas 后拿到完整应用；
-- 技能的 run.mjs 就能通过包名定位应用；
-- README 补两条安装路径；
-- 验证：干净机器上 npm i -g + npx skills add，全流程可用。
+发布物就是仓库本身 + npm 包，做到这一步用户即可：
 
-## 八、你最初三个问题的直接回答
+```bash
+# GitHub：直接 clone 跑
+git clone https://github.com/<you>/manga-panel-studio.git
+cd manga-panel-studio && npm install && npm start
+
+# npm：全局装，命令直接可用
+npm install -g manga-panel-studio
+manga-panel-studio          # 启动画布服务
+
+# 技能装进 agent
+npx skills add <you>/manga-panel-studio --skill manga-panel-studio -a codex -y
+```
+
+package.json 最小内容：
+
+```json
+{
+  "name": "manga-panel-studio",
+  "version": "0.1.0",
+  "bin": { "manga-panel-studio": "./bin/cli.mjs" },
+  "scripts": { "start": "node server/canvas.mjs" },
+  "engines": { "node": ">=20" },
+  "files": ["server", "public", "skills", "bin", "README.md"],
+  "postinstall": "node bin/setup-check.mjs"
+}
+```
+
+几个要点：
+
+- **Node 侧零依赖**这个优势要保持住：不引入任何运行时 npm 依赖，安装永远秒级；
+- files 白名单不含 sessions/、docs/images（截图只留在 GitHub README，不进 npm 包）；
+- postinstall 只打印「缺什么、去哪装」，绝不静默拉模型；
+- 发 npm 前先 npm pack --dry-run 确认体积（预计 < 2.5 MB）。
+
+## 八、按反馈修订的三个结论
 
 1. **前后端是否需要安装依赖？** Node 侧不用（纯内置模块，无 package.json）；
-   前端不用（vendor 全本地）；Python 侧必须装（fastapi/opencv/torch/模型权重），
-   这部分无法靠技能安装器解决，要么用户自己装 manga-image-translator，要么将来把 OCR 服务做成可选的 uvx 工具。
+   前端不用（vendor 全本地）；Python 侧只装 manga-image-translator 一件事，
+   它的 requirements.txt 就覆盖了本项目全部 Python 依赖（见第九节）。
 2. **是否要把所有代码放进 skill 目录？** 不建议。安装器只复制技能目录，
    把 server/public 拷进去会造成两份代码、升级冲突、体积暴涨。
-   正确做法：技能=说明书+启动器，应用=仓库或 npm 包。
-3. **sessions / settings / .tmp 放哪？** 统一搬到用户数据目录：
-   Windows %LOCALAPPDATA%/comic-canvas，macOS/Linux $XDG_DATA_HOME/comic-canvas。
-   .tmp 这种缓存放 HOME/cache，日志放 HOME/logs。开发期可以在项目里用环境变量覆盖，
-   但默认值必须指向用户目录，这样别人装完就能用。
+   正确做法：技能=说明书+启动器，应用=GitHub 仓库 + npm 包，两条安装路都通。
+3. **sessions / settings / .tmp 放哪？** 统一放用户数据目录
+   （Windows %LOCALAPPDATA%/<包名>，macOS/Linux $XDG_DATA_HOME/<包名>）；
+   不做旧数据迁移展示。新用户从第一天就是干净的用户目录，
+   老用户（你自己）搬一次数据即可，不做自动迁移界面。
 
-## 九、决策点（需要你拍板）
+## 八、名字怎么起
 
-| 问题 | 选项 A | 选项 B | 我的倾向 |
-| --- | --- | --- | --- |
-| 技能名 | 保留 manga-canvas-pipeline | 改成 comic-canvas，和包名一致 | B，安装列表更清晰 |
-| Python 依赖 | 用户自装 manga-image-translator（现状） | 未来做 uvx 可选包 | 先 A，B 以后再说 |
-| settings 迁移 | 自动复制旧数据 | 只提示，用户自己搬 | A，但要保留旧目录不删 |
-| 是否发 npm 包 | 只发 GitHub，用户 clone | 发 npm，支持 npx | 先 GitHub，包体小可以随时发 |
+comic-canvas、manga-canvas 在 npm 上都可注册，但它们更像「类别」不像「产品」。
+建议从一个词根派生三件套（GitHub 仓库名 / npm 包名 / 技能名保持一致）：
 
-确认这四个决策点后，就可以按阶段 0-3 开工。
+| 候选 | npm 状态 | 评价 |
+| --- | --- | --- |
+| **manga-panel-studio** | 空闲 | 漫画分镜工作室：面板 + 校对 + 配音，最贴产品形态，推荐 |
+| mangapress | 空闲 | 短，但方向感弱一些 |
+| mangastudio | 空闲 | 与 Clip Studio 旧名撞车，容易混淆，不推荐 |
+| manga-ocr-canvas | 空闲 | 只强调 OCR，丢了配音这条线 |
+| manga-panel | 空闲 | 简洁，但英文里 panel 歧义偏大 |
+
+推荐 **manga-panel-studio**，三件套这样派生：
+
+```text
+GitHub:  github.com/<you>/manga-panel-studio
+npm:     manga-panel-studio      （bin 同名，全局装完命令就是 manga-panel-studio）
+skill:   manga-panel-studio      （skills/manga-panel-studio/SKILL.md）
+home:    %LOCALAPPDATA%/manga-panel-studio   （环境变量改叫 MPS_HOME 或 STUDIO_HOME）
+```
+
+名字定了后，全局替换一次到位：仓库目录名、package.json、SKILL.md 的 name 字段、
+环境变量前缀、settings.json 的 projectRoot 默认值、README 全部同步改。
+
+## 九、Python 依赖归属（按反馈澄清）
+
+| 依赖 | 谁需要 | 说明 |
+| --- | --- | --- |
+| fastapi、uvicorn、pydantic | 本项目 server/ocr_service.py | 识别服务的 HTTP 壳，与 MT 无关 |
+| opencv (cv2)、numpy、pillow | 本项目和 MT 都要 | 图像处理基础库，两边共用 |
+| torch + 检测/OCR 模型 | manga_translator | MT 的 dispatch() 用它跑模型，本项目不直接碰 torch |
+| manga_translator 包 | 本项目 server/mask_column_ocr.py import 它 | 复用它的检测和 OCR 实现，不自己维护 |
+| requests | skills/.../canvas_cli.py | CLI 调画布 HTTP 接口 |
+
+结论：**装好 manga-image-translator，上面这些就全齐了**——它的 requirements.txt
+覆盖 fastapi/opencv/torch/numpy 等全部运行依赖。本项目不单独提供 requirements.txt，
+避免两套环境互相污染；唯一的约束是那个环境需要 Python 3.10+。
+
+所以用户只需要做一件事：装 manga-image-translator（手动装，或让 agent 按「五点五」
+的指引来装）。其余一律不用单独装。
