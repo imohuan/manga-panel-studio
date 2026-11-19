@@ -43,26 +43,34 @@ AI 通过 HTTP 接口改框，前端用 SSE 实时刷新。一张漫画从「识
 
 ## 安装
 
-### 方式一：npm（推荐）
+技能（AI agent 用）和应用（画布服务）是分开的两个东西：
+
+- **应用本体** = npm 包 `manga-panel-studio`，提供 7788 画布服务；
+- **技能** = `skills/manga-panel-studio/`，教 AI agent 怎么调用这个服务。
+
+### 装 npm 包（必装，服务从这里来）
 
 ```bash
 npm i -g manga-panel-studio
-manga-panel-studio        # 启动 http://127.0.0.1:7788
+manga-panel-studio          # 启动 http://127.0.0.1:7788
+manga-panel-studio check    # 查服务状态
 ```
 
-安装脚本会自动创建 `~/.manga-panel-studio/` 并把配置模板复制进去，
+安装脚本会自动创建 `~/.manga-panel-studio/`（settings.json 和 sessions/ 都在这里），
 打开 http://127.0.0.1:7788/settings.html 填上 API Key 即可使用。
 
-### 方式二：技能装进 AI agent
+### 装技能（给 AI agent 用，可选）
 
 ```bash
 npx skills add imohuan/manga-panel-studio --skill manga-panel-studio
 ```
 
-装进 Codex / Claude Code 等支持 Agent Skills 的工具后，agent 按 SKILL.md 的流程
-走「配置检查 → OCR → 校验 → 分镜 → 配音」全流程。
+装进 Codex / Claude Code 等支持 Agent Skills 的工具后，agent 会先检查 npm 包
+是否已装、再启动/探活服务，然后按 SKILL.md 的流程走
+「配置检查 → OCR → 校验 → 分镜 → 配音」全流程。
+技能依赖上面这个 npm 包，单独装技能不装包是跑不起来的。
 
-### 从源码运行
+### 从源码运行（开发者）
 
 当前版本面向 Windows 本地使用。需要 Node.js，以及一个装了 `manga-image-translator` 的 Python 环境。
 

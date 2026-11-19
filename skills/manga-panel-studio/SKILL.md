@@ -10,24 +10,42 @@ metadata:
 把会话目录（默认 ~/.manga-panel-studio/sessions/<会话>/）里的漫画图片，经过「整页 OCR → 逐页检查图校对 →
 修框 → AI 理解写 md → 配音脚本 → 声纹与对话音频」变成可配音的分镜数据。
 
-## 零、总则（先读这一段）
+## 零、前置条件与应用启动（先读这一段）
+
+### 本技能建立在 npm 包 manga-panel-studio 之上
+
+技能装好后，**先确认应用本体已安装**。技能只有说明书和 CLI，
+画布服务（7788）由 npm 包提供，没有它整套流程都跑不起来：
+
+    npm list -g manga-panel-studio   # 有输出 = 已安装
+
+没装就先装（一条命令，零依赖秒装完）：
+
+    npm install -g manga-panel-studio
+
+装好后用包自带的命令启动/检查服务，**不要**去 node server/canvas.mjs
+（那是源码开发方式，npm 安装的用户没有 server/ 目录）：
+
+    manga-panel-studio          # 启动画布服务（前台运行）
+    manga-panel-studio check    # 查 7788 / 5009 两个服务的状态
+
+如果用户是从源码克隆的仓库（存在 server/canvas.mjs），才可以
+`node <仓库>/server/canvas.mjs` 或 `<仓库>/start.bat` 启动。
+判断方法：`manga-panel-studio check` 通了就直接用，别纠结是哪种安装方式。
 
 ### 第一步：看一眼配置有没有填
 
-技能要用的 key 存在仓库根的 settings.json（路径可用 STUDIO_SETTINGS_FILE 覆盖）。开始干活前先跑：
+配置存在 ~/.manga-panel-studio/settings.json（npm 安装时自动从模板创建；
+路径可用 STUDIO_SETTINGS_FILE 覆盖）。开始干活前先跑：
 
-    cd <仓库>/skills/manga-panel-studio/scripts
     $env:PYTHONIOENCODING='utf-8'
     python canvas_cli.py doctor
 
 它**只读文件**，不启动、不重启任何服务，所以很快，可以每次都用。
 
 - 打印「配置已存在」→ 直接往下做，别再多跑探活。
-- 打印「配置还没填：……」→ 这些项缺了。这时才启动画布服务：
-
-    node <仓库>/server/canvas.mjs      # 端口 7788
-
-  （日志可以被重定向到 `.tmp/canvas.log`；如果 7788 已经在跑就直接用，别重启。）
+- 打印「配置还没填：……」→ 这些项缺了。这时确保画布服务在跑
+  （没跑就 `manga-panel-studio` 启动，已在跑就直接用，别重启），
   然后用浏览器打开 **http://127.0.0.1:7788/settings.html**，
   doctor 也会自己打开。告诉用户缺哪几项、设置页已打开，等用户填完再继续。
   不要猜 key，也不要往 settings.json 里写假值。
@@ -39,9 +57,9 @@ OCR 服务地址。
 
 退出码：0 = 配置都在；2 = 有缺项（已打开设置页）。
 
-识别服务 5009 只在要跑 OCR 时才需要，那时候没起再拉：
-
-    <MT>/py310/python.exe server/ocr_service.py --port 5009 --use-gpu
+识别服务 5009 只在要跑 OCR 时才需要，那时候没起再拉。
+Python 解释器从 ~/.manga-panel-studio/settings.json 的 translator.projectRoot 推导
+（在设置页里填 manga-image-translator 的目录），没装 MT 就先让用户装。
 
 刚启动要 20-40 秒加载模型。想看两个服务通不通，用 `python canvas_cli.py check`。
 
@@ -79,10 +97,10 @@ OCR 服务地址。
 
 **服务（设置与音频已合并进主服务，单端口 7788）**
 
-    node <仓库>/server/canvas.mjs        # 画布 + 设置 + 音频管理，端口 7788
-    <MT>/py310/python.exe <仓库>/server/ocr_service.py --port 5009 --use-gpu
-    # MT = manga-image-translator 目录（settings.json 的 translator.projectRoot）
-    # 或者一键： <仓库>/start.bat
+    manga-panel-studio          # npm 安装的用户这样启动
+    manga-panel-studio check    # 探活 7788 / 5009
+    # 源码开发才用： node <仓库>/server/canvas.mjs 或 <仓库>/start.bat
+    # OCR 服务由画布服务按需调起，端口 5009；Python 解释器来自 settings 的 translator.projectRoot
 
 - 主服务 server/canvas.mjs（7788）：前后端一体。静态页面、会话管理、框 CRUD、
   SSE 广播、检查图 /render、任务队列（调 OCR 服务）、设置 API、音频管理 API。
