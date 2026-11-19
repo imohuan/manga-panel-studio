@@ -16,7 +16,7 @@
 
 启动：
     I:/manga-image-translator/py310/python.exe server/ocr_service.py --port 5009 --use-gpu
-    （工作目录必须是 I:/comic-canvas，见 start.bat）
+    （工作目录必须是本仓库根，见 start.bat）
 """
 from __future__ import annotations
 

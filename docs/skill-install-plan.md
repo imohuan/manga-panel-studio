@@ -17,13 +17,13 @@
 我在临时目录实测了一次（没有碰本项目）：
 
 ```text
-npx skills add I:/comic-canvas --skill manga-canvas-pipeline -a codex -y
+npx skills add I:/comic-canvas --skill manga-panel-studio -a codex -y
 
 结果只复制了 4 个文件（约 87 KB）到临时项目：
-  .agents/skills/manga-canvas-pipeline/SKILL.md
-  .agents/skills/manga-canvas-pipeline/scripts/canvas_cli.py
-  .agents/skills/manga-canvas-pipeline/scripts/_h.py
-  .agents/skills/manga-canvas-pipeline/scripts/_t2.py
+  .agents/skills/manga-panel-studio/SKILL.md
+  .agents/skills/manga-panel-studio/scripts/canvas_cli.py
+  .agents/skills/manga-panel-studio/scripts/_h.py
+  .agents/skills/manga-panel-studio/scripts/_t2.py
 
 server/、public/、sessions/ 一个都没有。
 ```
@@ -68,7 +68,7 @@ comic-canvas/
 |- server/                      现有后端，基本不动
 |- public/                      现有前端，基本不动
 |- skills/
-|   +- manga-canvas-pipeline/   现有技能（建议改名为 comic-canvas）
+|   +- manga-panel-studio/   现有技能（建议改名为 comic-canvas）
 |       +- SKILL.md             只写流程、命令、排查
 |       +- scripts/
 |       |   +- canvas_cli.py    现有 CLI
@@ -187,7 +187,7 @@ COMIC_CANVAS_HOME（可选）
 
 这一节和「安装方式」无关，但**推到 GitHub 前必须做**，否则会泄密：
 
-1. skills/manga-canvas-pipeline/scripts/_t2.py 第 3 行有一个真实的 OpenAI API key，
+1. skills/manga-panel-studio/scripts/_t2.py 第 3 行有一个真实的 OpenAI API key，
    而且从初始提交起就被 Git 跟踪了。必须删文件，并考虑清理历史（或直接废弃该仓库重新建）。
 2. .tmp/ 目录 40.6 MB，里面有 Chrome 调试 profile（Cookies、History）和会话图片，
    .gitignore 现在只忽略 .tmp-*，匹配不到 .tmp/，要加一行 .tmp/。
@@ -221,7 +221,7 @@ COMIC_CANVAS_HOME（可选）
 - SKILL.md 精简到 500 行以内，安装、启动细节挪到 references/setup.md；
 - 新增 scripts/run.mjs 启动器（找应用、起服务、轮询健康检查）；
 - canvas_cli.py 的服务地址从写死端口改为读 COMIC_CANVAS_HOME 配置或 CLI 参数；
-- 验证：npx skills add 本仓库 --skill manga-canvas-pipeline -a codex -y，
+- 验证：npx skills add 本仓库 --skill manga-panel-studio -a codex -y，
   在干净目录里按 SKILL.md 指引能完成 doctor / 启动 / 建画布。
 
 ### 阶段 3：发布 GitHub + npm（半天）
@@ -321,7 +321,7 @@ home:    %LOCALAPPDATA%/manga-panel-studio   （环境变量改叫 MPS_HOME 或 
 
 ### 1. 两个测试脚本是垃圾，直接删
 
-\`skills/manga-canvas-pipeline/scripts/_h.py\` 和 \`_t2.py\` 是之前调试留下的临时文件，
+\`skills/manga-panel-studio/scripts/_h.py\` 和 \`_t2.py\` 是之前调试留下的临时文件，
 不是技能的一部分，谁都没引用它们。处理：
 
 - 两个文件直接删掉（\`_h.py\` 未跟踪，删了就没了；\`_t2.py\` 已被 Git 跟踪，
@@ -329,7 +329,7 @@ home:    %LOCALAPPDATA%/manga-panel-studio   （环境变量改叫 MPS_HOME 或 
 - \`_t2.py\` 里的真实 API key 要去平台后台作废——它已经进 Git 历史，删文件不等于删历史；
 - 为了不重蹈覆辙，加一条规则：\`scripts/_*.py\` 一律不进 Git（写进 .gitignore），
   以后临时调试文件放这里自动被忽略；
-- 另外把 \`skills/manga-canvas-pipeline/scripts/__pycache__/\` 也加进忽略
+- 另外把 \`skills/manga-panel-studio/scripts/__pycache__/\` 也加进忽略
   （现在靠全局 \`__pycache__/\` 规则覆盖，显式写一份更保险）。
 
 ### 2. 地址写死的问题：统一收口到 settings.json
@@ -396,7 +396,7 @@ home:    %LOCALAPPDATA%/manga-panel-studio   （环境变量改叫 MPS_HOME 或 
 按反馈采用推荐候选。全局替换清单（实施时一次性完成）：
 
 ```text
-skills/manga-canvas-pipeline/     -> skills/manga-panel-studio/
+skills/manga-panel-studio/     -> skills/manga-panel-studio/
 SKILL.md 的 name 字段             -> manga-panel-studio
 package.json name/bin             -> manga-panel-studio
 环境变量前缀                      -> STUDIO_*（STUDIO_DATA_DIR、STUDIO_SESSIONS_DIR、MT_ROOT 保留）

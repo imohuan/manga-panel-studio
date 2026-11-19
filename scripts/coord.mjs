@@ -27,8 +27,8 @@ const HOT_FILES = ['public/canvas.js', 'public/panel.html', 'public/index.html']
 const SERVER_SRC = ['server/canvas.mjs'];
 // 技能和它的 CLI 也会被两个对话同时改（一个加启动自检，一个加历史记录）。
 const SHARED_DOCS = [
-  'skills/manga-canvas-pipeline/SKILL.md',
-  'skills/manga-canvas-pipeline/scripts/canvas_cli.py',
+  'skills/manga-panel-studio/SKILL.md',
+  'skills/manga-panel-studio/scripts/canvas_cli.py',
 ];
 // 共享的运行时：谁要重启服务，先认领，避免别人正在测的时候被打断
 const RUNTIME = ['runtime:canvas', 'runtime:ocr'];

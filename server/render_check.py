@@ -24,12 +24,31 @@
 输出：JPEG 字节流写到 stdout（canvas.mjs 直接转发给浏览器/Agent）。
 """
 import sys, json, io
+import os
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
+def _sessions_root():
+    """sessions 目录：环境变量 STUDIO_SESSIONS_DIR > settings.json 的 canvas.sessionsDir
+    > 默认 %LOCALAPPDATA%/manga-panel-studio/sessions。与 canvas.mjs 保持同一来源。"""
+    env = os.environ.get("STUDIO_SESSIONS_DIR")
+    if env:
+        return Path(env)
+    here = Path(__file__).resolve().parent.parent
+    sf = here / "settings.json"
+    if sf.exists():
+        try:
+            canvas = json.loads(sf.read_text(encoding="utf-8")).get("canvas") or {}
+            if canvas.get("sessionsDir"):
+                return Path(canvas["sessionsDir"])
+        except Exception:
+            pass
+    local = os.environ.get("LOCALAPPDATA") or str(Path.home())
+    return Path(local) / "manga-panel-studio" / "sessions"
+
 params = json.loads(sys.argv[1])
 session = params['session']; page = params['page']
-root = Path(r'I:/comic-canvas/sessions') / session
+root = _sessions_root() / session
 img = Image.open(root / (page + '.jpg')).convert('RGB')
 W0, H0 = img.size
 

@@ -1,4 +1,4 @@
-"""canvas_cli - 漫画画布技能 CLI（manga-canvas-pipeline）
+"""canvas_cli - 漫画分镜工作室 CLI（manga-panel-studio）
 
 一切写入都通过画布 HTTP 接口（server/canvas.mjs 7788），留历史、SSE 广播、
 前端实时刷新；禁止直接改 sessions/<会话>/ 下的 json。
@@ -114,9 +114,9 @@ def check_services() -> None:
             print(f"  {name}: OK ({r.status_code})")
         except Exception as e:
             print(f"  {name}: 不可用 —— {e}")
-            print("    画布: node I:/comic-canvas/server/canvas.mjs")
-            print("    OCR:  I:/manga-image-translator/py310/python.exe "
-                  "I:/comic-canvas/server/ocr_service.py --port 5009 --use-gpu")
+    mt = os.environ.get("MT_ROOT") or (_cfg.get("translator") or {}).get("projectRoot") or "<MT目录>"
+    print(f"    画布: node {ROOT}/server/canvas.mjs")
+    print(f"    OCR:  {mt}/py310/python.exe {ROOT}/server/ocr_service.py --port 5009 --use-gpu")
 
 
 def _alive(url, timeout=3):
@@ -212,7 +212,7 @@ def get_page(base, session, page):
 
 def put_regions(base, session, page, regions, summary, box=None, op="box-edit", boxes=None):
     return api(base, "PUT", f"/api/session/{session}/page/{page}",
-               json={"regions": regions, "by": "manga-canvas-cli",
+        json={"regions": regions, "by": "manga-panel-studio-cli",
                      "op": op, "summary": summary, "force": True,
                      "box": box, "boxes": boxes})
 
@@ -430,7 +430,7 @@ def chat_with_vision(base_url, api_key, model, system_prompt, user_text, image_j
 
 
 def load_settings():
-    return json.loads(Path("I:/comic-canvas/settings.json").read_text(encoding="utf-8"))
+        return json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
 
 
 def cmd_view(args):

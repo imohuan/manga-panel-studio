@@ -46,8 +46,8 @@ AI 通过 HTTP 接口改框，前端用 SSE 实时刷新。一张漫画从「识
 当前版本面向 Windows 本地使用。需要 Node.js，以及一个装了 `manga-image-translator` 的 Python 环境。
 
 ```powershell
-git clone <your-repo> comic-canvas
-cd comic-canvas
+git clone <your-repo> manga-panel-studio
+cd manga-panel-studio
 ```
 
 把 `start.bat` 里的 Python 路径改成你自己的：
@@ -78,7 +78,7 @@ set "OCR_PY=I:\manga-image-translator\py310\python.exe"
 ## 目录结构
 
 ```text
-comic-canvas/
+manga-panel-studio/
 ├── server/                 后端
 │   ├── canvas.mjs          画布服务（Node，7788）
 │   ├── tool_routes.js      设置 / 音频路由
@@ -95,7 +95,7 @@ comic-canvas/
 │   ├── audio.html          音频管理页
 │   └── vendor/             Vue、marked、字体（离线可用）
 ├── skills/                 AI 技能
-│   └── manga-canvas-pipeline/
+│   └── manga-panel-studio/
 │       ├── SKILL.md        流程说明
 │       └── scripts/        命令行工具
 ├── sessions/               画布数据（会话、图片、历史、音频）
@@ -118,7 +118,7 @@ GET    /api/jobs                              任务队列状态
 GET    /events                                SSE：画布变动实时推送
 ```
 
-配套的命令行工具在 `skills/manga-canvas-pipeline/scripts/canvas_cli.py`，
+配套的命令行工具在 `skills/manga-panel-studio/scripts/canvas_cli.py`，
 封装了建画布、上传、识别、改框、校验、配音等流程。它只通过上面的 HTTP 接口写数据，
 不直接改 `sessions/` 里的 JSON，保证历史记录和前端刷新不会漏。
 
