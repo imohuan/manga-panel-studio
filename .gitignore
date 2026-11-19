@@ -15,6 +15,7 @@ __pycache__/
 # 浏览器调试配置（Chrome 自动生成，随时可重建）
 .cdp-panel/
 .cdp/
+.cdp-*/
 
 # 本地密钥（API key），不进版本库
 settings.json
