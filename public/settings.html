@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>设置 — comic-canvas</title>
+  <link rel="stylesheet" href="/vendor/fonts.css">
+  <link rel="stylesheet" href="/vendor/kit.css">
+  <style>[v-cloak]{display:none}</style>
+</head>
+<body class="bg-surface-container-low">
+  <div id="app" v-cloak class="h-screen flex flex-col overflow-hidden">
+    <header class="flex-shrink-0 bg-surface-container-lowest border-b border-outline-variant px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-primary">settings</span>
+        <h1 class="text-sm font-semibold text-primary">设置</h1>
+        <span class="text-xs text-on-surface-variant">comic-canvas 独立配置服务</span>
+      </div>
+      <div class="flex gap-2">
+        <kit-button variant="outlined" icon="refresh" @click="load">重新加载</kit-button>
+        <kit-button icon="save" :loading="saving" @click="save">保存</kit-button>
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto min-w-0">
+      <div class="max-w-3xl mx-auto p-6 space-y-4">
+
+        <kit-card title="OpenAI 模型" icon="smart_toy">
+          <div class="space-y-3">
+            <kit-field label="Base URL" icon="link" hint="OpenAI 兼容接口地址，如 https://api.example.com/v1">
+              <kit-input v-model="s.openai.baseUrl" mono placeholder="https://api.example.com/v1"></kit-input>
+            </kit-field>
+            <kit-field label="API Key" icon="key">
+              <kit-input v-model="s.openai.apiKey" type="password" password-toggle mono :placeholder="keyPlaceholder"></kit-input>
+            </kit-field>
+            <kit-field label="模型" icon="memory">
+              <div class="flex items-center gap-2 w-full">
+                <kit-select v-model="s.openai.model" :options="modelOptions" placeholder="先检测再选择，或手动输入" class="flex-1"></kit-select>
+                <kit-button variant="outlined" icon="cloud_download" :loading="checkingModels" @click="checkModels">检测列表</kit-button>
+              </div>
+            </kit-field>
+            <div class="pt-2 border-t border-outline-variant space-y-2">
+              <span class="text-xs font-semibold text-primary">模型检测（流式输出）</span>
+              <div class="flex items-start gap-2">
+                <div class="flex-1 space-y-2">
+                  <kit-textarea v-model="detectPrompt" rows="2" placeholder="输入提示词（可选，默认：描述这张图片）"></kit-textarea>
+                  <div class="flex items-center gap-2">
+                    <input type="file" accept="image/*" @change="onDetectImage" class="text-xs text-on-surface-variant" />
+                    <img v-if="detectPreviewSrc" :src="detectPreviewSrc" class="h-16 w-16 object-cover rounded-md border border-outline-variant" alt="预览" />
+                    <span v-if="detectImageName" class="text-xs text-on-surface-variant">{{ detectImageName }}</span>
+                  </div>
+                </div>
+                <kit-button variant="outlined" icon="bolt" :loading="detecting" @click="detectModel">点击检测模型</kit-button>
+              </div>
+              <div class="bg-surface-container-low rounded-md p-3 min-h-12">
+                <span v-if="detecting && !detectOutput && !detectError" class="text-xs text-on-surface-variant animate-pulse">正在请求模型，请稍候…</span>
+                <span v-else-if="detectError" class="text-xs text-error">{{ detectError }}</span>
+                <span v-else class="text-xs whitespace-pre-wrap font-mono">{{ detectOutput }}<span v-if="detecting" class="animate-pulse">▍</span></span>
+              </div>
+            </div>
+          </div>
+        </kit-card>
+
+        <kit-card title="豆包语音（seed-audio-1.0）" icon="graphic_eq">
+          <div class="space-y-3">
+            <kit-field label="API Key" icon="key" hint="火山引擎新版控制台的 API Key（X-Api-Key 鉴权）">
+              <kit-input v-model="s.doubao.apiKey" type="password" password-toggle mono :placeholder="keyPlaceholder"></kit-input>
+            </kit-field>
+            <kit-field label="参考音频（可选）" icon="audio_file" hint="wav / mp3 / pcm / ogg_opus，单条 ≤ 30 秒 ≤ 10MB；保存后用于「测试参考音频」">
+              <input type="file" accept=".wav,.mp3,.pcm,.ogg,.opus" @change="onRefAudio" class="text-xs text-on-surface-variant" />
+            </kit-field>
+            <div class="flex gap-2 items-center">
+              <kit-button variant="outlined" icon="play_arrow" :loading="testingPlain" @click="ttsTest('plain')">测试音频生成</kit-button>
+              <kit-button variant="outlined" icon="graphic_eq" :loading="testingRef" @click="ttsTest('reference')">测试参考音频</kit-button>
+            </div>
+            <div v-if="ttsAudioSrc" class="space-y-1">
+              <audio :src="ttsAudioSrc" controls class="w-full"></audio>
+              <span class="text-xs text-on-surface-variant">上次生成 {{ lastTtsDuration }} 秒</span>
+            </div>
+          </div>
+        </kit-card>
+
+        <kit-card title="漫画翻译 OCR 服务" icon="translate">
+          <div class="space-y-3">
+            <kit-field label="服务地址" icon="lan" hint="OCR 服务探活地址（默认 http://127.0.0.1:5009）">
+              <kit-input v-model="s.translator.baseUrl" mono placeholder="http://127.0.0.1:5009"></kit-input>
+            </kit-field>
+            <kit-field label="项目根目录" icon="folder">
+              <kit-input v-model="s.translator.projectRoot" mono placeholder="I:/manga-image-translator"></kit-input>
+            </kit-field>
+            <div class="flex items-center gap-2">
+              <kit-button variant="outlined" icon="sensors" :loading="pinging" @click="ping">测试连接</kit-button>
+              <span class="inline-flex items-center gap-1 text-xs text-on-surface-variant" v-if="pingResult">
+                <kit-status-dot :status="pingOk ? 'ok' : 'error'"></kit-status-dot>{{ pingResult }}
+              </span>
+            </div>
+          </div>
+        </kit-card>
+
+      </div>
+    </main>
+  </div>
+
+  <script src="/vendor/vue.global.prod.js"></script>
+  <script src="/vendor/kit.js"></script>
+  <script>
+    const app = Vue.createApp({
+      setup() {
+        const notify = () => window.KitNotify;
+        const s = Vue.reactive({
+          openai: { baseUrl: '', apiKey: '', model: '' },
+          doubao: { apiKey: '', model: 'seed-audio-1.0', voice: '', referenceAudio: '' },
+          translator: { baseUrl: 'http://127.0.0.1:5009', projectRoot: '' },
+        });
+        const keyPlaceholder = Vue.ref('sk-***');
+        const modelOptions = Vue.ref([]);
+        const checkingModels = Vue.ref(false);
+        const saving = Vue.ref(false);
+        const testingPlain = Vue.ref(false);
+        const testingRef = Vue.ref(false);
+        const pinging = Vue.ref(false);
+        const pingResult = Vue.ref('');
+        const pingOk = Vue.ref(false);
+        const lastTtsDuration = Vue.ref('');
+        const ttsAudioSrc = Vue.ref('');
+        const detectPrompt = Vue.ref('你好，请用一句话介绍你自己');
+        const detectImageName = Vue.ref('');
+        const detectPreviewSrc = Vue.ref('');
+        const detectOutput = Vue.ref('');
+        const detectError = Vue.ref('');
+        const detecting = Vue.ref(false);
+        let detectImageB64 = '';
+        let refAudioB64 = '';
+        let audioEl = null;
+
+        const api = async (url, payload) => {
+          const resp = await fetch(url, {
+            method: payload ? 'POST' : 'GET',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload ? JSON.stringify(payload) : undefined,
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || data.ok === false) throw new Error(data.error || ('HTTP ' + resp.status));
+          return data;
+        };
+
+        const load = async () => {
+          try {
+            const data = await api('/api/settings');
+            Object.assign(s.openai, data.openai);
+            Object.assign(s.doubao, data.doubao);
+            Object.assign(s.translator, data.translator);
+            if (s.openai.model) modelOptions.value = [{ label: s.openai.model, value: s.openai.model }];
+          } catch (e) {
+            notify().error('加载配置失败：' + e.message);
+          }
+        };
+
+        const save = async () => {
+          saving.value = true;
+          try {
+            const payload = JSON.parse(JSON.stringify({ openai: { ...s.openai }, doubao: { ...s.doubao }, translator: { ...s.translator } }));
+            if (payload.openai.apiKey && payload.openai.apiKey.includes('***')) payload.openai.apiKey = '';
+            if (payload.doubao.apiKey && payload.doubao.apiKey.includes('***')) payload.doubao.apiKey = '';
+            await api('/api/settings', payload);
+            notify().success('已保存到 settings.json');
+          } catch (e) {
+            notify().error('保存失败：' + e.message);
+          }
+        };
+
+        const checkModels = async () => {
+          checkingModels.value = true;
+          try {
+            const payload = { baseUrl: s.openai.baseUrl };
+            if (s.openai.apiKey && !s.openai.apiKey.includes('***')) payload.apiKey = s.openai.apiKey;
+            const data = await api('/api/openai/models', payload);
+            modelOptions.value = data.models.map((m) => ({ label: m, value: m }));
+            if (!s.openai.model && data.models.length) s.openai.model = data.models[0];
+            notify().success('拿到 ' + data.models.length + ' 个模型');
+          } catch (e) {
+            notify().error('检测失败：' + e.message);
+          } finally {
+            checkingModels.value = false;
+          }
+        };
+
+        const playB64Mp3 = (b64) => {
+          ttsAudioSrc.value = 'data:audio/mp3;base64,' + b64;
+        };
+
+        const ttsTest = async (mode) => {
+          const busy = mode === 'reference' ? testingRef : testingPlain;
+          busy.value = true;
+          try {
+            const payload = { mode, text: '你好，这是设置界面的测试音频。' };
+            if (mode === 'reference') {
+              if (refAudioB64) payload.referenceAudioB64 = refAudioB64;
+              else if (!s.doubao.referenceAudio) throw new Error('先选择参考音频文件');
+            }
+            const data = await api('/api/doubao/tts-test', payload);
+            lastTtsDuration.value = String(data.originalDuration || data.duration || '?');
+            playB64Mp3(data.audioB64);
+            notify().success(mode === 'reference' ? '参考音频测试通过，正在播放' : '音频生成成功，正在播放');
+          } catch (e) {
+            notify().error('测试失败：' + e.message);
+          } finally {
+            busy.value = false;
+          }
+        };
+
+        const onRefAudio = (ev) => {
+          const file = ev.target.files[0];
+          if (!file) return;
+          if (file.size > 10 * 1024 * 1024) { notify().error('文件超过 10MB'); return; }
+          const reader = new FileReader();
+          reader.onload = () => {
+            refAudioB64 = String(reader.result).split(',')[1];
+            s.doubao.referenceAudio = refAudioB64;
+            notify().success('参考音频已就绪（' + Math.round(file.size / 1024) + 'KB），点「保存」写入配置');
+          };
+          reader.readAsDataURL(file);
+        };
+
+
+        const onDetectImage = (ev) => {
+          const file = ev.target.files[0];
+          if (!file) { detectImageB64 = ''; detectImageName.value = ''; detectPreviewSrc.value = ''; return; }
+          if (file.size > 10 * 1024 * 1024) { notify().error('图片超过 10MB'); return; }
+          const reader = new FileReader();
+          reader.onload = () => {
+            detectImageB64 = String(reader.result).split(',')[1];
+            detectPreviewSrc.value = String(reader.result);
+            detectImageName.value = file.name + ' (' + Math.round(file.size / 1024) + 'KB)';
+          };
+          reader.readAsDataURL(file);
+        };
+
+        const detectModel = async () => {
+          detecting.value = true;
+          detectOutput.value = '';
+          detectError.value = '';
+          try {
+            const payload = {
+              baseUrl: s.openai.baseUrl,
+              model: s.openai.model,
+              prompt: detectPrompt.value || '打个招呼，介绍一下你自己',
+            };
+            if (detectImageB64) payload.imageB64 = detectImageB64;
+            const resp = await fetch('/api/openai/detect-stream', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            if (!resp.ok || !resp.body) {
+              const t = await resp.text().catch(() => '');
+              throw new Error('HTTP ' + resp.status + ' ' + t.slice(0, 200));
+            }
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buf += decoder.decode(value, { stream: true });
+              const parts = buf.split('\n\n');
+              buf = parts.pop();
+              for (const part of parts) {
+                const els = part.split('\n');
+                const evt = els[0].replace('event: ', '').trim();
+                const dataLine = els.find(x2 => x2.startsWith('data: ')) || '';
+                const dataStr = dataLine.slice(6).trim();
+                if (evt === 'delta' && dataStr) {
+                  try { detectOutput.value += JSON.parse(dataStr).text || ''; } catch {}
+                } else if (evt === 'error') {
+                  try { detectError.value = JSON.parse(dataStr).message || 'unknown error'; } catch { detectError.value = dataStr; }
+                }
+              }
+            }
+            if (!detectError.value && !detectOutput.value) detectError.value = '模型没有返回内容';
+          } catch (e) {
+            detectError.value = e.message;
+          } finally {
+            detecting.value = false;
+          }
+        };
+
+        const ping = async () => {
+          pinging.value = true;
+          pingResult.value = '';
+          try {
+            const data = await api('/api/translator/ping', { baseUrl: s.translator.baseUrl });
+            pingOk.value = true;
+            pingResult.value = 'OCR 服务在线（status: ' + (data.status || 'ok') + '）';
+            notify().success('OCR 服务连接成功');
+          } catch (e) {
+            pingOk.value = false;
+            pingResult.value = '连接失败';
+            notify().error('探活失败：' + e.message);
+          } finally {
+            pinging.value = false;
+          }
+        };
+
+        Vue.onMounted(load);
+        return {
+          s, keyPlaceholder, modelOptions, checkingModels, testingPlain, testingRef,
+          pinging, pingResult, pingOk, lastTtsDuration, ttsAudioSrc,
+          load, save, checkModels, ttsTest, onRefAudio, ping, saving, 
+          detectPrompt, detectImageName, detectPreviewSrc, detectOutput, detectError, detecting, detectModel, onDetectImage,
+        };
+      },
+    });
+    app.use(window.UIKit);
+    app.mount('#app');
+  </script>
+</body>
+</html>

@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>漫画画布 · OCR 编辑器</title>
+<!-- 第三方字体/库全部本地化在 vendor/，离线可用，见 vendor/README -->
+<link href="/vendor/fonts.css" rel="stylesheet" />
+<link rel="stylesheet" href="/vendor/kit.css" />
+<style>
+  html, body, #app { height: 100%; margin: 0; }
+  body { font-family: Geist, "Microsoft YaHei", system-ui, sans-serif; }
+  #app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  .top { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+    border-bottom: 1px solid #e3e3e3; background: #fff; z-index: 20; }
+  .top .brand { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13px; }
+  .top .brand .material-symbols-outlined { font-size: 19px; }
+  .top .sp { flex: 1; }
+  .main { flex: 1; display: flex; min-height: 0; }
+  .canvas-wrap { flex: 1; position: relative; min-width: 0; }
+  /* touch-action:none 必须有：否则滚轮/触控板缩放会被浏览器当成页面滚动抢走，
+     表现就是「缩放时画布在抖」 */
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+    cursor: grab; touch-action: none; overscroll-behavior: contain; }
+  canvas.grabbing { cursor: grabbing; }
+  .panel { flex: 0 0 336px; border-left: 1px solid #e3e3e3; background: #fff; display: flex;
+    flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; max-width: 336px; }
+  .panel-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+    border-bottom: 1px solid #eee; font-size: 12px; font-weight: 600; }
+  .panel-head .sp { flex: 1; }
+  .panel-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px; min-width: 0; }
+  .panel-body::-webkit-scrollbar { width: 8px; }
+  .panel-body::-webkit-scrollbar-thumb { background: #ddd; border-radius: 4px; }
+  /* 区域面板：顶部按钮固定、中间列表滚动、底部编辑框固定 */
+  .panel-body--detail { overflow: hidden; display: flex; flex-direction: column; padding: 0; }
+  .detail-pane { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  .detail-top { flex: 0 0 auto; padding: 10px 12px; background: #fff;
+    border-bottom: 1px solid #eee; box-shadow: 0 4px 8px -6px rgba(0,0,0,.18); z-index: 2; }
+  .detail-top .actions { margin-top: 0; }
+  .detail-scroll { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden;
+    padding: 0 12px 10px; min-height: 0; }
+  .detail-scroll::-webkit-scrollbar { width: 8px; }
+  .detail-scroll::-webkit-scrollbar-thumb { background: #ddd; border-radius: 4px; }
+  .detail-foot { flex: 0 0 auto; padding: 10px 12px; border-top: 1px solid #e3e3e3;
+    background: #fff; box-shadow: 0 -4px 10px -6px rgba(0,0,0,.2); }
+  .detail-foot .foot-title { display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: #888; margin-bottom: 6px; }
+  .detail-foot .foot-title .mono { color: #666; }
+  .detail-foot .kit-textarea { resize: none; }
+  /* 列表标题贴着滚动区顶部，滚下去也看得见「区域 / 清空」 */
+  .box-head.sticky { position: sticky; top: 0; z-index: 1; background: #fff;
+    padding: 6px 0; margin: 12px 0 6px; }
+  .detail-home { padding: 12px; }
+  .thumb { width: 100%; max-height: 200px; object-fit: contain; background: #fafafa;
+    border: 1px solid #e5e5e5; border-radius: 4px; display: block; }
+  .meta { font-size: 11px; color: #888; line-height: 1.9; margin-top: 8px; }
+  .box-list { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
+  .box-item { padding: 7px 9px; border: 1px solid #ececec; border-radius: 5px; cursor: pointer;
+    font-size: 12px; line-height: 1.45; background: #fff; display: flex; align-items: center;
+    gap: 6px; min-width: 0; }
+  .box-item:hover { border-color: #c9c9c9; background: #fafafa; }
+  .box-item.on { border-color: #111; background: #f7f7f7; }
+  .box-item .idx { font: 600 10px "JetBrains Mono", monospace; color: #999; flex: 0 0 auto; }
+  .box-item .txt { color: #222; word-break: break-all; flex: 1; min-width: 0; }
+  .box-item .txt.empty { color: #bbb; font-style: italic; }
+  .box-item .tag { font-size: 9px; padding: 1px 5px; border-radius: 3px;
+    background: #f0f0f0; color: #888; flex: 0 0 auto; }
+  .box-item .tag.redetect { background: #e7f6ef; color: #148c5a; }
+  .box-item .row-del { border: 0; background: transparent; color: #d5d5d5; cursor: pointer;
+    padding: 0; width: 16px; height: 16px; flex: 0 0 16px; display: inline-flex;
+    align-items: center; justify-content: center; border-radius: 3px; opacity: .55; }
+  .box-item:hover .row-del { opacity: 1; }
+  .box-item .row-del:hover { background: #fdeaea; color: #c0392b; }
+  .box-item .row-del .material-symbols-outlined { font-size: 13px; }
+  /* 框正在识别：整行淡蓝 + 左上角转圈 */
+  .box-item.busy { border-color: #bdd0f7; background: #f5f8ff; }
+  .box-item.busy .txt { color: #2563eb; font-style: normal; }
+  .spin { flex: 0 0 12px; width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid rgba(37,99,235,.25); border-top-color: #2563eb;
+    animation: spin .75s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* 任务行里的转圈 */
+  .job-row .ico.spin-ico { display: inline-block; width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid rgba(37,99,235,.25); border-top-color: #2563eb;
+    animation: spin .75s linear infinite; }
+  /* 三个按钮排一行；面板窄的时候一起缩，不换行 */
+  .actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: nowrap; }
+  .actions .kit-btn { flex: 0 1 auto; min-width: 0; padding: 0 7px; }
+  /* 图标固定宽度：字体没加载好时也不会把按钮撑宽（否则整行会挤出面板） */
+  .actions .kit-btn .material-symbols-outlined { flex: 0 0 12px; width: 12px;
+    overflow: hidden; display: inline-block; }
+  .actions .kit-btn > span:not(.material-symbols-outlined) { overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .box-head { display: flex; align-items: center; gap: 6px; margin: 16px 0 6px;
+    font-size: 11px; color: #888; }
+  .box-head b { color: #333; font-family: "JetBrains Mono", monospace; }
+  .box-head .sp { flex: 1; }
+  .hist-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+  .hist-bar .modes { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+  .hist-bar .modes button { padding: 0 7px; }
+  .mini2.danger { color: #c0392b; border-color: #f0dada; }
+  .mini2.danger:hover { background: #fdf2f2; }
+  .mini2:disabled { opacity: .45; cursor: not-allowed; }
+  .json-chip { flex: 0 0 auto; font-family: "JetBrains Mono", monospace; }
+  .op-card .op-sum { max-width: none; }
+  .op-card summary .op-sum { flex: 1 1 auto; min-width: 0; }
+  .op-json .scope { font-size: 9px; padding: 1px 5px; border-radius: 3px; }
+  .op-json .scope.page { background: #eef3ff; color: #2f5fd0; }
+  .op-json .scope.region { background: #e7f6ef; color: #148c5a; }
+  .erase-detail { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .erase-page { font-size: 9.5px; color: #666; background: #f6f6f6; border-radius: 3px;
+    padding: 1px 5px; font-family: "JetBrains Mono", monospace; }
+  /* 卡片里的识别文本 */
+  .op-texts { margin-top: 8px; border-top: 1px dashed #eee; padding-top: 7px;
+    display: flex; flex-direction: column; gap: 4px; }
+  .op-text-row { display: flex; gap: 6px; align-items: flex-start; font-size: 11px; line-height: 1.55; }
+  .op-text-idx { flex: 0 0 auto; font: 600 9.5px "JetBrains Mono", monospace; color: #aaa;
+    background: #f4f4f4; border-radius: 3px; padding: 1px 4px; margin-top: 1px; }
+  .op-text { flex: 1; min-width: 0; color: #333; word-break: break-word; white-space: pre-wrap;
+    user-select: text; }
+  .status { flex: 0 0 30px; display: flex; align-items: center; gap: 14px; padding: 0 14px;
+    border-top: 1px solid #e8e8e8; background: #fafafa; font-size: 11px; color: #888; }
+  .status .sp { flex: 1; }
+  .status .dot { width: 6px; height: 6px; border-radius: 50%; background: #ccc; display: inline-block; margin-right: 5px; }
+  .status .dot.ok { background: #148c5a; }
+  .mono { font-family: "JetBrains Mono", monospace; }
+  .mode-bar { display: flex; align-items: center; gap: 6px; }
+  /* 工具 dialog（设置 / 音频） */
+  .tool-dialog-mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 60;
+    display: flex; align-items: center; justify-content: center; }
+  .tool-dialog { width: min(1100px, 92vw); height: min(760px, 90vh); background: #fff;
+    border-radius: 10px; display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: 0 16px 60px rgba(0,0,0,.3); }
+  .tool-dialog.full { position: fixed; inset: 0; width: 100vw; height: 100vh;
+    border-radius: 0; z-index: 70; }
+  .tool-dialog-head { flex: 0 0 40px; display: flex; align-items: center; gap: 8px;
+    padding: 0 12px; border-bottom: 1px solid #e5e5e5; font-size: 13px; font-weight: 600; }
+  .tool-dialog-head .sp { flex: 1; }
+  .tool-dialog-head button { border: 0; background: transparent; cursor: pointer;
+    width: 30px; height: 30px; border-radius: 5px; display: inline-flex;
+    align-items: center; justify-content: center; color: #555; }
+  .tool-dialog-head button:hover { background: #f0f0f0; color: #111; }
+  .tool-dialog iframe { flex: 1; border: 0; width: 100%; }
+  .modes { display: inline-flex; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden;
+    height: 24px; }
+  .modes button { border: 0; background: #fff; padding: 0 10px; height: 24px; font-size: 12px;
+    cursor: pointer; color: #555; display: inline-flex; align-items: center; gap: 4px;
+    font-family: inherit; line-height: 1; }
+  .modes button + button { border-left: 1px solid #e8e8e8; }
+  .modes button.on { background: #111; color: #fff; }
+  .modes button .material-symbols-outlined { font-size: 15px; }
+  .logs { position: fixed; right: 348px; bottom: 36px; width: 520px; max-height: 62vh; display: flex;
+    flex-direction: column; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.14); z-index: 40; overflow: hidden; }
+  .logs-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid #eee; font-size: 12px; font-weight: 600; }
+  .logs-body { overflow-y: auto; padding: 4px 0; }
+  .logs-head .sp { flex: 1; }
+  .log-row { display: flex; gap: 8px; padding: 6px 12px; font-size: 11px; border-bottom: 1px solid #f6f6f6; }
+  .log-row:hover { background: #fafafa; }
+  .log-row .t { color: #aaa; font-family: "JetBrains Mono", monospace; flex: 0 0 54px; }
+  .log-row .by { flex: 0 0 58px; font-size: 10px; }
+  .log-row .sum { flex: 1; color: #333; }
+  .badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: #eee; color: #666; }
+  .badge.agent { background: #eef3ff; color: #2f5fd0; }
+  .badge.ui { background: #eefaf3; color: #148c5a; }
+  .kbd-hint { display: flex; gap: 10px; font-size: 11px; color: #999; }
+  .kbd-hint b { color: #555; font-weight: 600; }
+  .sess { height: 24px; border: 1px solid #e0e0e0; border-radius: 5px; padding: 0 6px;
+    font: 600 12px Geist, "Microsoft YaHei", sans-serif; color: #222; background: #fff; cursor: pointer; }
+  .mini { width: 22px; height: 22px; border: 1px solid #e0e0e0; background: #fff; border-radius: 5px;
+    display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+  .mini .material-symbols-outlined { font-size: 15px; color: #555; }
+  .newin { height: 22px; width: 110px; border: 1px solid #d8d8d8; border-radius: 5px; padding: 0 6px;
+    font-size: 11px; font-family: inherit; }
+  .jobbar { display: flex; align-items: center; gap: 10px; font-size: 11px; color: #666; }
+  .jobbar .chip { display: inline-flex; align-items: center; gap: 3px; background: #f4f4f4;
+    border-radius: 4px; padding: 2px 6px; font-family: "JetBrains Mono", monospace; }
+  .hist { border: 1px solid #ececec; border-radius: 6px; margin-bottom: 6px; overflow: hidden; }
+  .hist summary { padding: 7px 9px; cursor: pointer; font-size: 11.5px; display: flex;
+    align-items: center; gap: 6px; list-style: none; }
+  .hist summary::-webkit-details-marker { display: none; }
+  .hist .imgs { display: flex; gap: 6px; padding: 0 8px 8px; }
+  .hist .imgs figure { margin: 0; flex: 1; }
+  .hist .imgs img { width: 100%; border: 1px solid #eee; border-radius: 4px; display: block; }
+  .hist .imgs figcaption { font-size: 9.5px; color: #999; text-align: center; margin-top: 2px; }
+  .jobsum { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;
+    border: 1px solid #eee; border-radius: 6px; padding: 8px 4px; }
+  .jobsum div { text-align: center; display: flex; flex-direction: column; gap: 2px; }
+  .jobsum b { font-size: 16px; font-family: Georgia, serif; color: #111; line-height: 1.1; }
+  .jobsum span { font-size: 9.5px; color: #999; }
+  .job-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px;
+    border: 1px solid #ececec; border-radius: 6px; margin-bottom: 5px; background: #fff; }
+  .job-row .ico { font-size: 16px; color: #aaa; }
+  .job-row.running { border-color: #cddcf7; background: #f7faff; }
+  .job-row.running .ico { color: #2563eb; }
+  .job-row.queued .ico { color: #c99a2e; }
+  .job-row.paused .ico { color: #8a8a8a; }
+  .job-row.done .ico { color: #148c5a; }
+  .job-row.error { border-color: #f3d6d6; background: #fffafa; }
+  .job-row.error .ico { color: #c0392b; }
+  .job-row .info { flex: 1; min-width: 0; }
+  .job-row .line1 { display: flex; align-items: center; gap: 6px; font-size: 11.5px; }
+  .job-row .tag2 { font-size: 9px; background: #f1f1f1; color: #777; padding: 1px 4px; border-radius: 3px; }
+  .job-row .line2 { display: flex; gap: 8px; font-size: 10px; color: #aaa; margin-top: 2px; }
+  .job-row .op { border: 0; background: transparent; cursor: pointer; padding: 2px; color: #999;
+    display: inline-flex; align-items: center; border-radius: 4px; }
+  .job-row .op:hover { background: #f0f0f0; color: #333; }
+  .job-row .op.del:hover { background: #fdeaea; color: #c0392b; }
+  .job-row .op .material-symbols-outlined { font-size: 16px; }
+  .job-row .link { display: inline-flex; align-items: center; color: #2563eb; opacity: .8; }
+  .job-row .link .material-symbols-outlined { font-size: 15px; }
+
+  /* 历史操作卡片 */
+  .op-card { border: 1px solid #ececec; border-radius: 6px; margin-bottom: 6px; background: #fff;
+    transition: box-shadow .3s, border-color .3s; }
+  .op-card[open] { border-color: #d8d8d8; }
+  .op-card.flash { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,.18); }
+  .op-card summary { display: flex; align-items: center; gap: 6px; padding: 7px 9px;
+    cursor: pointer; list-style: none; font-size: 11.5px; min-width: 0; overflow: hidden; }
+  .op-card summary::-webkit-details-marker { display: none; }
+  .op-card .op-ico { font-size: 15px; color: #999; }
+  .op-card .op-ico, .op-card summary > b { flex: 0 0 auto; }
+  .op-card summary > b { font-family: "JetBrains Mono", monospace; font-weight: 600; }
+  .op-card .op-sum { color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1 1 auto; min-width: 0; }
+  .op-card .op-time { margin-left: auto; color: #b3b3b3; font: 10px "JetBrains Mono", monospace;
+    flex: 0 0 auto; }
+  .op-card .op-del { border: 0; background: transparent; color: #ccc; cursor: pointer;
+    padding: 1px; display: inline-flex; border-radius: 3px; }
+  .op-card .op-del:hover { background: #fdeaea; color: #c0392b; }
+  .op-card .op-del .material-symbols-outlined { font-size: 14px; }
+  .op-body { padding: 0 9px 9px; }
+  .op-imgs { display: flex; gap: 6px; }
+  .op-imgs figure { margin: 0; flex: 1; min-width: 0; }
+  .op-imgs img { width: 100%; border: 1px solid #f0f0f0; border-radius: 4px; display: block;
+    cursor: zoom-in; background: #fafafa; }
+  .op-imgs figcaption { font-size: 9.5px; color: #999; text-align: center; margin-top: 2px; }
+  .op-json { margin-top: 8px; border-top: 1px dashed #eee; padding-top: 6px; }
+  .json-head { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: #888; }
+  .json-head .sp { flex: 1; }
+  .mini2 { border: 1px solid #e6e6e6; background: #fff; border-radius: 4px; font-size: 10px;
+    padding: 1px 6px; cursor: pointer; color: #666; }
+  .mini2:hover { background: #f5f5f5; }
+  .json-body { margin: 6px 0 0; max-height: 220px; overflow: auto; background: #fafafa;
+    border: 1px solid #f0f0f0; border-radius: 4px; padding: 6px; font: 10px/1.5 "JetBrains Mono", monospace;
+    white-space: pre; color: #444; }
+
+  /* 自建全屏预览 */
+  .lb { position: fixed; inset: 0; z-index: 300; background: #0b0d11;
+    display: flex; flex-direction: column; }
+  .lb-head { display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+    border-bottom: 1px solid #232830; color: #cfd6e1; font-size: 12px; flex: 0 0 auto; }
+  .lb-head .material-symbols-outlined { font-size: 17px; color: #7f8896; }
+  .lb-title { max-width: 52vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb-sp { flex: 1; }
+  .lb-zoom { font: 11px "JetBrains Mono", monospace; color: #9aa4b2; background: #1b1f26;
+    border-radius: 4px; padding: 3px 8px; min-width: 46px; text-align: center;
+    flex: 0 0 auto; letter-spacing: .2px; }
+  .lb-btn { border: 1px solid #2b313a; background: #1b1f26; color: #aab3c0; cursor: pointer;
+    width: 28px; height: 26px; min-width: 28px; flex: 0 0 28px; border-radius: 5px;
+    display: inline-flex; align-items: center; justify-content: center; padding: 0;
+    overflow: hidden; }
+  .lb-btn .material-symbols-outlined { font-size: 16px; line-height: 1; display: block; }
+  .lb-btn:hover { background: #232833; color: #fff; }
+  .lb-btn .material-symbols-outlined { font-size: 16px; color: inherit; }
+  .lb-stage { flex: 1; position: relative; overflow: hidden; cursor: grab; outline: none;
+    touch-action: none; }
+  .lb-stage.grabbing { cursor: grabbing; }
+  .lb-img { position: absolute; left: 0; top: 0; transform-origin: 0 0;
+    user-select: none; -webkit-user-drag: none; will-change: transform; max-width: none; }
+  /* JSON 预览：铺满整个窗口，只跟随浏览器滚动，不做容器缩放/平移 */
+  .lb-stage.json { display: block; overflow: auto; cursor: auto; touch-action: auto;
+    padding: 0; align-items: stretch; justify-content: flex-start; }
+  .lb-json { margin: 0; width: 100%; min-height: 100%; box-sizing: border-box;
+    color: #cfd6e1; font-family: "JetBrains Mono", monospace; line-height: 1.5;
+    white-space: pre; background: #14171d; padding: 14px 18px; border-radius: 0;
+    text-align: left; overflow: visible; }
+  .lb-foot { flex: 0 0 auto; padding: 6px 14px 8px; font-size: 10.5px; color: #5f6874;
+    text-align: center; border-top: 1px solid #1b1f26; }
+
+
+  .switch-tabs { display: flex; align-items: center; gap: 4px; pointer-events: auto; }
+  .switch-tabs .arrow { border: 1px solid #e0e0e0; background: #fff; width: 22px; height: 22px;
+    border-radius: 5px; display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; padding: 0; color: #555; }
+  .switch-tabs .arrow:hover { background: #f3f3f3; }
+  .switch-tabs .arrow .material-symbols-outlined { font-size: 16px; }
+  .switch-tabs .chips { display: flex; gap: 3px; }
+  .switch-tabs .chip { border: 1px solid #e0e0e0; background: #fff; font-size: 10.5px;
+    padding: 2px 7px; border-radius: 5px; cursor: pointer; color: #666; font-family: inherit; }
+  .switch-tabs .chip.on { background: #2563eb; border-color: #2563eb; color: #fff; }
+  .status .sp { flex: 1; }
+  [v-cloak] { display: none; }
+</style>
+</head>
+<body class="bg-surface-container-low">
+<div id="app" v-cloak>
+  <header class="top">
+    <div class="brand">
+      <span class="material-symbols-outlined">photo_library</span>
+      <select class="sess" :value="S.session" @change="switchSession($event.target.value)">
+        <option v-for="s in S.sessions" :key="s" :value="s">{{ s }}</option>
+      </select>
+      <span style="font-weight:400;color:#9a9a9a;font-size:11px">{{ S.pages.length }} 页</span>
+      <button class="mini" @click="showNew = !showNew" title="新建画布">
+        <span class="material-symbols-outlined">add</span>
+      </button>
+      <input v-if="showNew" v-model="newName" class="newin" placeholder="画布名" @keyup.enter="createSession" />
+    </div>
+    <div class="mode-bar">
+      <div class="modes">
+        <button :class="{on: S.mode === 'pan'}" @click="setMode('pan')">
+          <span class="material-symbols-outlined">pan_tool</span>平移
+        </button>
+        <button :class="{on: S.mode === 'box'}" @click="setMode('box')">
+          <span class="material-symbols-outlined">crop_free</span>框选 Q
+        </button>
+        <button :class="{on: S.mode === 'detect'}" @click="setMode('detect')">
+          <span class="material-symbols-outlined">center_focus_strong</span>识别框 E
+        </button>
+        <button :class="{on: S.mode === 'erase'}" @click="setMode('erase')">
+          <span class="material-symbols-outlined">ink_eraser</span>橡皮 D
+        </button>
+      </div>
+      <kit-button variant="outlined" icon="fit_screen" @click="fitAll">适应</kit-button>
+      <kit-button variant="outlined" icon="save" :disabled="!curPage" @click="savePage()">保存</kit-button>
+      <kit-button variant="outlined" icon="upload" @click="uploadRef.click()">上传</kit-button>
+      <input ref="uploadRef" type="file" multiple accept="image/*" style="display:none"
+        @change="upload($event.target.files); $event.target.value = ''" />
+      <kit-button variant="outlined" icon="playlist_play" @click="queueAll('ocr')" :disabled="!S.pages.length">
+        批量 OCR
+      </kit-button>
+    </div>
+    <div class="sp"></div>
+  <div class="mode-bar">
+    <kit-button variant="outlined" icon="settings" @click="openToolDialog('settings')">设置</kit-button>
+    <kit-button variant="outlined" icon="graphic_eq" @click="openToolDialog('audio')">音频</kit-button>
+  </div>
+    <div class="kbd-hint">
+      <span><b>Q</b> 框选</span><span><b>E</b> 识别框</span><span><b>D</b> 橡皮</span><span><b>Esc</b> 平移</span>
+      <span><b>F</b> 适应</span><span><b>Del</b> 删除</span>
+    </div>
+  </header>
+
+  <div class="main">
+    <div class="canvas-wrap" ref="wrap">
+      <canvas ref="cv"></canvas>
+      <div v-if="busy" style="position:absolute;left:50%;top:16px;transform:translateX(-50%);
+        background:#111;color:#fff;font-size:12px;padding:6px 14px;border-radius:20px;display:flex;gap:6px;align-items:center">
+        <span class="material-symbols-outlined" style="font-size:15px">sync</span>识别中…
+      </div>
+    </div>
+
+    <aside class="panel">
+  <div class="panel-head">
+    <div class="modes" style="height:24px">
+      <button style="height:24px" :class="{on: sideTab === 'detail'}" @click="sideTab = 'detail'">
+        <span class="material-symbols-outlined">description</span>区域
+      </button>
+      <button style="height:24px" :class="{on: sideTab === 'history'}" @click="sideTab = 'history'; loadHistory()">
+        <span class="material-symbols-outlined">history</span>历史
+        <span v-if="history.length" style="color:#999;font-size:10px">{{ history.length }}</span>
+      </button>
+      <button style="height:24px" :class="{on: sideTab === 'jobs'}" @click="sideTab = 'jobs'; loadJobs()">
+        <span class="material-symbols-outlined">task_alt</span>任务
+        <span v-if="activeJobs.length" style="color:#999;font-size:10px">{{ activeJobs.length }}</span>
+      </button>
+    </div>
+    <span class="sp"></span>
+    <span v-if="sideTab === 'detail' && curPage" class="mono" style="font-size:11px;color:#999;font-weight:400">{{ curPage.regions.length }} 框</span>
+  </div>
+
+  <div class="panel-body">
+    <!-- ========== 任务 ========== -->
+    <div v-if="sideTab === 'jobs'">
+      <div class="jobsum">
+        <div><b>{{ jobStat.running }}</b><span>运行中</span></div>
+        <div><b>{{ jobStat.queued }}</b><span>排队</span></div>
+        <div><b>{{ jobStat.paused }}</b><span>已暂停</span></div>
+        <div><b>{{ jobStat.done }}</b><span>完成</span></div>
+        <div><b style="color:#c0392b">{{ jobStat.error }}</b><span>失败</span></div>
+      </div>
+      <div style="display:flex;gap:6px;margin:10px 0">
+        <kit-button size="sm" variant="outlined" icon="pause" @click="pauseAll">暂停全部</kit-button>
+        <kit-button size="sm" variant="outlined" icon="play_arrow" @click="resumeAll">恢复全部</kit-button>
+        <kit-button size="sm" variant="outlined" icon="delete_sweep" @click="clearFinished">清理已完成</kit-button>
+      </div>
+      <kit-empty v-if="!sortedJobs.length" icon="task_alt" title="暂无任务" desc="选中图片后点「识别框」或「识别文字」"></kit-empty>
+      <div v-for="j in sortedJobs" :key="j.id" class="job-row" :class="j.status"
+        @click="j.status === 'done' && jumpToHistory(j)">
+        <span class="ico material-symbols-outlined">
+          {{ { queued: 'schedule', running: 'sync', paused: 'pause_circle', done: 'check_circle', error: 'error' }[j.status] }}
+        </span>
+        <div class="info">
+          <div class="line1">
+            <b>{{ j.page }}</b>
+            <span class="tag2">{{ j.mode === 'detect' ? '识别框' : '识别文字' }}</span>
+                      </div>
+          <div class="line2">
+            <span class="mono">{{ fmtTime(j.ts) }}</span>
+            <span v-if="j.result" style="color:#148c5a">{{ j.result.count }} 框 · {{ j.result.ms }}ms</span>
+            <span v-if="j.error" style="color:#c0392b">{{ j.error }}</span>
+          </div>
+        </div>
+        <span v-if="j.status === 'done'" class="link" title="查看历史">
+          <span class="material-symbols-outlined">open_in_new</span>
+        </span>
+        <button v-if="j.status === 'queued'" class="op" title="暂停" @click.stop="pauseJob(j.id)">
+          <span class="material-symbols-outlined">pause</span>
+        </button>
+        <button v-if="j.status === 'paused'" class="op" title="恢复" @click.stop="resumeJob(j.id)">
+          <span class="material-symbols-outlined">play_arrow</span>
+        </button>
+        <button v-if="j.status !== 'running'" class="op del" title="删除" @click.stop="removeJob(j.id)">
+          <span class="material-symbols-outlined">delete</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ========== 历史 ========== -->
+    <div v-else-if="sideTab === 'history'">
+      <div class="modes" style="height:22px;margin-bottom:10px">
+        <button style="height:22px" :class="{on: histFilter === 'all'}" @click="histFilter = 'all'">全部</button>
+        <button style="height:22px" :class="{on: histFilter === 'ocr'}" @click="histFilter = 'ocr'">识别</button>
+        <button style="height:22px" :class="{on: histFilter === 'detect'}" @click="histFilter = 'detect'">检测</button>
+        <button style="height:22px" :class="{on: histFilter === 'edit'}" @click="histFilter = 'edit'">编辑</button>
+        <span style="flex:1"></span>
+        <button style="height:22px;border:0;background:transparent;color:#c0392b"
+          title="清空全部历史" @click="clearHistory">清空</button>
+      </div>
+      <kit-empty v-if="!filteredHistory.length" icon="history" title="还没有记录" desc="每次识别或手动改框都会留一条"></kit-empty>
+
+      <details v-for="o in filteredHistory" :key="o.id" class="op-card" :data-opid="o.id" :open="openOps.has(o.id)"
+        @toggle="onToggle(o.id, $event)">
+        <summary>
+          <span class="op-ico material-symbols-outlined">
+            {{ ICON[o.kind] || 'history' }}
+          </span>
+          <b>{{ o.page || '—' }}</b>
+          <span class="op-sum">{{ o.summary }}</span>
+          <span class="op-time">{{ fmtTime(o.ts) }}</span>
+          <button class="op-del" title="删除这条" @click.prevent.stop="removeOp(o.id)">
+            <span class="material-symbols-outlined">delete</span>
+          </button>
+        </summary>
+        <div class="op-body">
+          <div class="op-imgs">
+            <figure v-if="o.inputUrl">
+              <img :src="o.inputUrl" loading="lazy" @click="previewImage(o.inputUrl, '输入图')" />
+              <figcaption>输入</figcaption>
+            </figure>
+            <figure v-if="o.outputUrl">
+              <img :src="o.outputUrl" loading="lazy" @click="previewImage(o.outputUrl, '输出图（标注后）')" />
+              <figcaption>输出 · {{ o.output?.count ?? 0 }} 框</figcaption>
+            </figure>
+          </div>
+          <div v-if="o.data" class="op-json">
+            <span>JSON</span>
+            <span class="mono">{{ (o.data.regions || []).length }} 条</span>
+            <span class="sp"></span>
+            <button class="mini2" @click="previewJson(o)">
+              <span class="material-symbols-outlined" style="font-size:12px;vertical-align:-2px">fullscreen</span>
+              全屏查看
+            </button>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <!-- ========== 区域 ========== -->
+    <div v-else>
+      <kit-empty v-if="!curPage" icon="ads_click" title="点击画布上的图片" desc="左键点图片查看全部识别框"></kit-empty>
+      <template v-else>
+        <div style="position:relative">
+          <img class="thumb" :src="curPage.image" />
+          <div v-if="curBox" :style="thumbBoxStyle"></div>
+        </div>
+        <div class="meta">
+          <span class="mono">{{ curPage.width }}×{{ curPage.height }}</span>
+          <span style="margin-left:10px">文本 {{ fillRate }}%</span>
+          <span style="margin-left:10px">状态 {{ curPage.status }}</span>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <kit-button size="sm" icon="crop_free" @click="queueJob(curPage.page, 'detect')">识别框</kit-button>
+          <kit-button size="sm" icon="document_scanner"
+            :disabled="!curPage.regions.length"
+            @click="queueJob(curPage.page, 'ocr')">整页识别</kit-button>
+          <kit-button size="sm" icon="select_all"
+            :disabled="S.selBox < 0"
+            @click="queueBoxOcr()">识别框内</kit-button>
+        </div>
+        <div class="box-list">
+          <div v-for="(r, i) in curPage.regions" :key="i" class="box-item"
+            :class="{on: S.selBox === i}" @click="selectBox(S.selPage, i)">
+            <span class="idx">{{ String(i).padStart(2, '0') }}</span>
+            <span v-if="r.source === 'redetect'" class="tag redetect">补</span>
+            <span class="tag" v-else-if="r.source === 'manual'">手</span>
+            <span class="txt" :class="{empty: !(r.text || '').trim()}">{{ (r.text || '').trim() || '（空）' }}</span>
+          </div>
+        </div>
+        <div v-if="curBox" style="margin-top:16px;border-top:1px solid #eee;padding-top:12px">
+          <div style="font-size:11px;color:#999;margin-bottom:6px">
+            框 #{{ S.selBox }} · {{ Math.round(curBox.box[2]-curBox.box[0]) }}×{{ Math.round(curBox.box[3]-curBox.box[1]) }}
+          </div>
+          <kit-textarea v-model="editText" rows="3" placeholder="这块框的文字…"></kit-textarea>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <kit-button size="sm" icon="check" @click="applyText">应用</kit-button>
+            <kit-button variant="outlined" size="sm" icon="delete" @click="removeBox(S.selPage, S.selBox)">删除</kit-button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+</aside>
+  </div>
+
+  <footer class="status">
+    <span><i class="dot" :class="{ok: sseOn}"></i>{{ sseOn ? '实时已连接' : '连接中' }}</span>
+    <span class="mono">{{ cursor }}</span>
+    <span class="mono">{{ Math.round(S.scale * 100) }}%</span>
+    <span>{{ { pan: '平移', box: '框选', detect: '识别框', erase: '橡皮' }[S.mode] }}</span>
+    <span class="jobbar">
+      <span v-if="jobStat.running" class="chip" style="color:#2563eb">▶ {{ jobStat.running }}</span>
+      <span v-if="jobStat.queued" class="chip" style="color:#b8860b">排队 {{ jobStat.queued }}</span>
+      <span v-if="jobStat.done" class="chip" style="color:#148c5a">完成 {{ jobStat.done }}</span>
+      <span v-if="jobStat.error" class="chip" style="color:#c0392b">失败 {{ jobStat.error }}</span>
+    </span>
+    <span class="sp"></span>
+    <div v-if="overlapGroup.length > 1" class="switch-tabs">
+      <button class="arrow" @click="cycleBox(-1)" title="上一个（←）">
+        <span class="material-symbols-outlined">chevron_left</span>
+      </button>
+      <div class="chips">
+        <button v-for="(bi, k) in overlapGroup" :key="bi" class="chip"
+          :class="{on: S.selBox === bi}" @click="selectBox(S.selPage, bi)">
+          {{ k + 1 }}/{{ overlapGroup.length }} · 框 {{ bi }}
+        </button>
+      </div>
+      <button class="arrow" @click="cycleBox(1)" title="下一个（→）">
+        <span class="material-symbols-outlined">chevron_right</span>
+      </button>
+    </div>
+    <span>左键拖动平移 · 滚轮缩放</span>
+  <lightbox v-model:open="previewOpen" :src="preview?.url" :json="preview?.json"
+    :title="previewTitle"></lightbox>
+
+  <!-- 设置 / 音频管理 dialog（iframe 嵌套，支持全屏） -->
+  <div v-if="toolDialog.open" class="tool-dialog-mask" @click.self="toolDialog.open = false">
+    <div class="tool-dialog" :class="{ full: toolDialog.full }">
+      <div class="tool-dialog-head">
+        <span>{{ toolDialog.title }}</span>
+        <span class="sp"></span>
+        <button @click="toolDialog.full = !toolDialog.full" :title="toolDialog.full ? '退出全屏' : '全屏'">
+          <span class="material-symbols-outlined">{{ toolDialog.full ? 'close_fullscreen' : 'open_in_full' }}</span>
+        </button>
+        <button @click="toolDialog.open = false" title="关闭">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <iframe :src="toolDialog.url" allow="clipboard-write"></iframe>
+    </div>
+  </div>
+
+  </footer>
+
+  <!-- 自建全屏预览：支持缩放/平移 -->
+
+  </div>
+
+<script src="/vendor/vue.global.prod.js"></script>
+<script src="/vendor/kit.js"></script>
+<script src="/lightbox.js"></script>
+<script src="/canvas.js"></script>
+</body>
+</html>

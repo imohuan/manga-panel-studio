@@ -1,0 +1,210 @@
+<aside class="panel">
+  <div class="panel-head">
+    <div class="modes" style="height:24px">
+      <button style="height:24px" :class="{on: sideTab === 'detail'}" @click="sideTab = 'detail'">
+        <span class="material-symbols-outlined">description</span>区域
+      </button>
+      <button style="height:24px" :class="{on: sideTab === 'history'}" @click="sideTab = 'history'; loadHistory()">
+        <span class="material-symbols-outlined">history</span>历史
+        <span v-if="history.length" style="color:#999;font-size:10px">{{ history.length }}</span>
+      </button>
+      <button style="height:24px" :class="{on: sideTab === 'jobs'}" @click="sideTab = 'jobs'; loadJobs()">
+        <span class="material-symbols-outlined">task_alt</span>任务
+        <span v-if="activeJobs.length" style="color:#999;font-size:10px">{{ activeJobs.length }}</span>
+      </button>
+    </div>
+    <span class="sp"></span>
+    <span v-if="sideTab === 'detail' && curPage" class="mono" style="font-size:11px;color:#999;font-weight:400">{{ curPage.regions.length }} 框</span>
+  </div>
+
+  <div class="panel-body" :class="{ 'panel-body--detail': sideTab === 'detail' }">
+    <!-- ========== 任务 ========== -->
+    <div v-if="sideTab === 'jobs'">
+      <div class="jobsum">
+        <div><b>{{ jobStat.running }}</b><span>运行中</span></div>
+        <div><b>{{ jobStat.queued }}</b><span>排队</span></div>
+        <div><b>{{ jobStat.paused }}</b><span>已暂停</span></div>
+        <div><b>{{ jobStat.done }}</b><span>完成</span></div>
+        <div><b style="color:#c0392b">{{ jobStat.error }}</b><span>失败</span></div>
+      </div>
+      <div style="display:flex;gap:6px;margin:10px 0">
+        <kit-button size="sm" variant="outlined" icon="pause" @click="pauseAll">暂停全部</kit-button>
+        <kit-button size="sm" variant="outlined" icon="play_arrow" @click="resumeAll">恢复全部</kit-button>
+        <kit-button size="sm" variant="outlined" icon="delete_sweep" @click="clearFinished">清理已完成</kit-button>
+      </div>
+      <kit-empty v-if="!sortedJobs.length" icon="task_alt" title="暂无任务" desc="选中图片后点「识别框」或「识别文字」"></kit-empty>
+      <div v-for="j in sortedJobs" :key="j.id" class="job-row" :class="j.status"
+        @click="j.status === 'done' && jumpToHistory(j)">
+        <span v-if="j.status === 'running'" class="ico spin-ico" title="执行中"></span>
+        <span v-else class="ico material-symbols-outlined">
+          {{ { queued: 'schedule', paused: 'pause_circle', done: 'check_circle', error: 'error' }[j.status] }}
+        </span>
+        <div class="info">
+          <div class="line1">
+            <b>{{ j.page }}</b>
+            <span class="tag2">{{ MODE_LABEL[j.mode] || j.mode }}</span>
+                      </div>
+          <div class="line2">
+            <span class="mono">{{ fmtTime(j.ts) }}</span>
+            <span v-if="j.result" style="color:#148c5a">{{ j.result.count }} 框 · {{ j.result.ms }}ms</span>
+            <span v-if="j.error" style="color:#c0392b">{{ j.error }}</span>
+          </div>
+        </div>
+        <span v-if="j.status === 'done'" class="link" title="查看历史">
+          <span class="material-symbols-outlined">open_in_new</span>
+        </span>
+        <button v-if="j.status === 'queued'" class="op" title="暂停" @click.stop="pauseJob(j.id)">
+          <span class="material-symbols-outlined">pause</span>
+        </button>
+        <button v-if="j.status === 'paused'" class="op" title="恢复" @click.stop="resumeJob(j.id)">
+          <span class="material-symbols-outlined">play_arrow</span>
+        </button>
+        <button v-if="j.status !== 'running'" class="op del" title="删除" @click.stop="removeJob(j.id)">
+          <span class="material-symbols-outlined">delete</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ========== 历史 ========== -->
+    <div v-else-if="sideTab === 'history'">
+      <div class="hist-bar">
+        <div class="modes" style="height:22px">
+          <button style="height:22px" :class="{on: histFilter === 'all'}" @click="histFilter = 'all'">全部</button>
+          <button style="height:22px" :class="{on: histFilter === 'ocr'}" @click="histFilter = 'ocr'">识别</button>
+          <button style="height:22px" :class="{on: histFilter === 'detect'}" @click="histFilter = 'detect'">检测</button>
+          <button style="height:22px" :class="{on: histFilter === 'region'}" @click="histFilter = 'region'">区域</button>
+          <button style="height:22px" :class="{on: histFilter === 'edit'}" @click="histFilter = 'edit'">编辑</button>
+        </div>
+        <span style="flex:1"></span>
+        <button class="mini2 danger" :disabled="!history.length" title="清空全部历史"
+          @click="clearHistory">
+          <span class="material-symbols-outlined" style="font-size:12px;vertical-align:-2px">delete_sweep</span>
+          清空
+        </button>
+      </div>
+      <kit-empty v-if="!filteredHistory.length" icon="history" title="还没有记录" desc="每次识别或手动改框都会留一条"></kit-empty>
+
+      <details v-for="o in filteredHistory" :key="o.id" class="op-card" :data-opid="o.id" :open="openOps.has(o.id)"
+        @toggle="onToggle(o.id, $event)">
+        <summary>
+          <span class="op-ico material-symbols-outlined">
+            {{ ICON[o.kind] || 'history' }}
+          </span>
+          <b>{{ o.page || '—' }}</b>
+          <span class="op-sum">{{ o.summary }}</span>
+          <span class="op-time">{{ fmtTime(o.ts) }}</span>
+          <button v-if="o.data" class="mini2 json-chip" title="全屏查看 JSON"
+            @click.prevent.stop="previewJson(o)">
+            JSON {{ (o.data.regions || []).length }}
+          </button>
+          <button class="op-del" title="删除这条" @click.prevent.stop="removeOp(o.id)">
+            <span class="material-symbols-outlined">delete</span>
+          </button>
+        </summary>
+        <div class="op-body">
+          <div class="op-imgs">
+            <figure v-if="o.inputUrl">
+              <img :src="o.inputUrl" loading="lazy" @click="previewImage(o.inputUrl, '输入图')" />
+              <figcaption>输入</figcaption>
+            </figure>
+            <figure v-if="o.outputUrl">
+              <img :src="o.outputUrl" loading="lazy" @click="previewImage(o.outputUrl, '输出图（标注后）')" />
+              <figcaption>输出 · {{ o.output?.count ?? 0 }} 框</figcaption>
+            </figure>
+          </div>
+          <div v-if="o.data?.scope === 'erase' && o.data.pages" class="erase-detail">
+            <span v-for="p in o.data.pages" :key="p.page" class="erase-page">
+              {{ p.page }} · 删 {{ p.boxes?.length || 0 }} 个 · 剩 {{ p.left }}
+            </span>
+          </div>
+          <!-- 识别出的文字：直接摊在卡片里，不用再点 JSON -->
+          <div v-if="opTexts(o).length" class="op-texts">
+            <div v-for="(t, ti) in opTexts(o)" :key="ti" class="op-text-row">
+              <span class="op-text-idx">{{ ti + 1 }}</span>
+              <span class="op-text">{{ t }}</span>
+            </div>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <!-- ========== 区域 ========== -->
+    <div v-else class="detail-pane">
+      <div v-if="!curPage" class="detail-home">
+        <kit-empty icon="ads_click" title="点击画布上的图片" desc="左键点图片查看全部识别框"></kit-empty>
+      </div>
+      <template v-else>
+        <!-- 顶部：固定在面板上，不跟列表滚走 -->
+        <div class="detail-top">
+          <div class="actions">
+            <kit-button size="sm" icon="crop_free" @click="queueJob(curPage.page, 'detect-page')">整页找框</kit-button>
+            <kit-button size="sm" icon="document_scanner"
+              :disabled="!curPage.regions.length"
+              @click="queueJob(curPage.page, 'ocr-page')">整页识别</kit-button>
+            <kit-button size="sm" icon="select_all" variant="outlined"
+              :disabled="S.selBox < 0"
+              @click="queueBoxOcr()">框内文字</kit-button>
+          </div>
+        </div>
+
+        <!-- 中间：只有这一段滚动 -->
+        <div class="detail-scroll" ref="detailScroll">
+          <div style="position:relative;margin-top:12px">
+            <img class="thumb" :src="curPage.image" />
+            <div v-if="curBox" :style="thumbBoxStyle"></div>
+          </div>
+          <div class="meta">
+            <span class="mono">{{ curPage.width }}×{{ curPage.height }}</span>
+            <span style="margin-left:10px">文本 {{ fillRate }}%</span>
+            <span style="margin-left:10px">状态 {{ curPage.status }}</span>
+            <span v-if="pageIsBusy(curPage.page)" style="margin-left:10px;color:#2563eb">
+              <span class="spin" style="display:inline-block;vertical-align:-1px"></span>
+              {{ { 'detect-page': '整页找框', 'ocr-page': '整页识别',
+                   'detect-region': '区域找框', 'ocr-region': '区域识别' }[pageBusyMode(curPage.page)] || '处理中' }}…
+            </span>
+          </div>
+          <div class="box-head sticky">
+            <span>区域 <b>{{ curPage.regions.length }}</b></span>
+            <span class="sp"></span>
+            <button class="mini2 danger" :disabled="!curPage.regions.length" @click="clearBoxes">
+              <span class="material-symbols-outlined" style="font-size:12px;vertical-align:-2px">delete_sweep</span>
+              清空
+            </button>
+          </div>
+          <div class="box-list" style="margin-top:0">
+            <div v-for="(r, i) in curPage.regions" :key="i" class="box-item"
+              :data-box-index="i"
+              :class="{on: S.selBox === i, busy: isPending(curPage.page, r.box)}"
+              @click="selectBox(S.selPage, i)">
+              <span class="idx">{{ String(i).padStart(2, '0') }}</span>
+              <span v-if="r.source === 'redetect'" class="tag redetect">补</span>
+              <span v-else-if="r.source === 'region'" class="tag redetect">区</span>
+              <span v-else-if="r.source === 'region-ocr'" class="tag redetect">区识</span>
+              <span class="tag" v-else-if="r.source === 'manual'">手</span>
+              <span class="txt" :class="{empty: !(r.text || '').trim() && !isPending(curPage.page, r.box)}">
+                {{ isPending(curPage.page, r.box) ? '识别中…' : ((r.text || '').trim() || '（空）') }}
+              </span>
+              <span v-if="isPending(curPage.page, r.box)" class="spin" title="识别中"></span>
+              <button v-else class="row-del" title="删除这个框" @click.stop="removeBox(S.selPage, i)">
+                <span class="material-symbols-outlined">close</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 底部：编辑框固定，不参与滚动 -->
+        <div v-if="curBox" class="detail-foot">
+          <div class="foot-title">
+            <span>框 #{{ S.selBox }}</span>
+            <span class="mono">{{ Math.round(curBox.box[2]-curBox.box[0]) }}×{{ Math.round(curBox.box[3]-curBox.box[1]) }}</span>
+          </div>
+          <kit-textarea v-model="editText" rows="3" placeholder="这块框的文字…"></kit-textarea>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <kit-button size="sm" icon="check" @click="applyText">应用</kit-button>
+            <kit-button variant="outlined" size="sm" icon="delete" @click="removeBox(S.selPage, S.selBox)">删除</kit-button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+</aside>

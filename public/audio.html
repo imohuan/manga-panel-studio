@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>音频管理</title>
+  <link rel="stylesheet" href="/vendor/fonts.css">
+  <link rel="stylesheet" href="/vendor/kit.css">
+  <style>
+    [v-cloak] { display: none; }
+    audio { height: 24px; }
+    .char-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .char-grid > * { min-width: 0; }
+    .audio-grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+  </style>
+</head>
+<body class="bg-surface-container-low">
+<div id="app" v-cloak class="h-screen flex flex-col overflow-hidden">
+
+  <!-- 顶栏 -->
+  <header class="flex-shrink-0 bg-surface-container-lowest border-b border-outline-variant px-6 py-3 flex items-center gap-4">
+    <div class="flex items-center gap-2">
+      <span class="material-symbols-outlined text-primary">graphic_eq</span>
+      <h1 class="text-sm font-semibold text-primary">音频管理</h1>
+    </div>
+    <div class="w-72">
+      <kit-select v-model="session" :options="sessionOptions" searchable search-placeholder="搜索会话..." placeholder="选择会话" @change="onSessionChange"></kit-select>
+    </div>
+    <div class="flex-1"></div>
+    <span v-if="health.keyReady" class="inline-flex items-center gap-1 text-xs text-on-surface-variant">
+      <kit-status-dot status="ok"></kit-status-dot>豆包 Key 已配置
+    </span>
+    <span v-else class="inline-flex items-center gap-1 text-xs text-on-surface-variant">
+      <kit-status-dot status="error"></kit-status-dot>豆包 Key 未配置
+    </span>
+  </header>
+
+  <!-- 内容区：左右布局 -->
+  <main class="flex-1 flex overflow-hidden min-h-0 min-w-0">
+
+    <!-- 左侧：角色声纹 -->
+    <section class="flex-shrink-0 min-w-0 flex flex-col border-r border-outline-variant bg-surface-container-lowest" style="width: 340px;">
+      <div class="flex-shrink-0 px-4 py-2 border-b border-outline-variant flex items-center justify-between">
+        <h2 class="text-xs font-semibold text-on-surface-variant">角色声纹</h2>
+        <span class="text-xs text-on-surface-variant">{{ allChars.length }} 个角色</span>
+      </div>
+      <kit-empty v-if="allChars.length === 0" icon="person_off" title="暂无角色"
+        desc="characters.json 尚未生成角色档案"></kit-empty>
+      <div v-else class="flex-1 flex flex-col min-h-0">
+        <!-- 上方：角色卡片列表 -->
+        <div class="flex-1 overflow-y-auto min-h-0 p-2">
+          <div class="char-grid">
+            <div v-for="c in allChars" :key="c.name"
+            class="border rounded-xl p-3 cursor-pointer transition-colors"
+            :class="selectedChar === c.name
+              ? 'bg-surface-container-low border-outline'
+              : 'bg-surface-container-lowest border-outline-variant hover:bg-surface-container-low'"
+            @click="selectChar(c)">
+              <div class="flex items-center justify-between gap-1 mb-1">
+                <span class="text-xs font-semibold text-primary truncate">{{ c.name }}</span>
+                <kit-badge v-if="!c.inFile" variant="warning" class="flex-shrink-0">未建档</kit-badge>
+                <kit-icon-button v-if="charAudioUrl(c)" size="sm" :icon="playing[c.name] ? 'pause' : 'play_arrow'"
+                  @click.stop="togglePlay(c)"></kit-icon-button>
+              </div>
+              <div v-if="c.voiceprint_desc" class="text-xs text-on-surface-variant line-clamp-1 mb-1">{{ c.voiceprint_desc }}</div>
+              <audio v-if="charAudioUrl(c)" :ref="el => setAudioRef(c.name, el)" :src="charAudioUrl(c)"
+                class="hidden" @ended="playing[c.name] = false"></audio>
+              <div v-else class="text-xs text-on-surface-variant">暂无声纹</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 下方：固定编辑区（不跟随滚动） -->
+        <div class="flex-shrink-0 border-t border-outline-variant bg-surface-container-lowest p-3 overflow-y-auto" style="max-height: 45vh;">
+          <div v-if="selectedCharObj" class="space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-primary">编辑：{{ selectedCharObj.name }}</span>
+              <div class="flex items-center gap-1">
+                <kit-button size="sm" variant="outlined" icon="graphic_eq" :loading="busy['vp_' + selectedCharObj.name]"
+                  @click="genVoiceprint(selectedCharObj)">生成声纹</kit-button>
+                <kit-button size="sm" variant="text" icon="close" @click="selectedChar = null">关闭</kit-button>
+              </div>
+            </div>
+            <div class="space-y-1">
+              <span class="text-xs text-on-surface-variant">声纹描述</span>
+              <kit-textarea v-model="selectedCharObj.voiceprint_desc" rows="2" placeholder="如：青年男性，嗓音低沉"
+                @blur="saveChar(selectedCharObj)"></kit-textarea>
+            </div>
+            <div class="audio-grid-2">
+              <div class="border border-outline-variant rounded-md p-2 space-y-1">
+                <div class="flex items-center justify-between gap-1">
+                  <span class="text-xs text-on-surface-variant truncate">API 参考音频</span>
+                  <kit-button size="sm" variant="text" icon="upload" @click="pickFile(selectedCharObj, 'api_ref')">上传</kit-button>
+                </div>
+                <audio v-if="selectedCharObj.api_ref_url" controls :src="selectedCharObj.api_ref_url" class="w-full"></audio>
+                <div v-else class="text-xs text-on-surface-variant leading-4">未设置</div>
+              </div>
+              <div class="border border-outline-variant rounded-md p-2 space-y-1">
+                <div class="flex items-center justify-between gap-1">
+                  <span class="text-xs text-on-surface-variant truncate">最终参考音频</span>
+                  <kit-button size="sm" variant="text" icon="upload" @click="pickFile(selectedCharObj, 'final_ref')">上传</kit-button>
+                </div>
+                <audio v-if="selectedCharObj.final_ref_url" controls :src="selectedCharObj.final_ref_url" class="w-full"></audio>
+                <div v-else class="text-xs text-on-surface-variant leading-4">未设置</div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="text-xs text-on-surface-variant text-center py-2">点击上方角色卡片进行编辑</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 右侧：对话音频 -->
+    <section class="flex-1 min-w-0 flex flex-col bg-surface-container-low">
+      <div class="flex-shrink-0 px-4 py-2 border-b border-outline-variant flex items-center justify-between bg-surface-container-lowest">
+        <h2 class="text-xs font-semibold text-on-surface-variant">对话音频</h2>
+        <kit-button size="sm" icon="playlist_play" :loading="genAllRunning" :disabled="dialogues.length === 0"
+          @click="genAll">批量生成全部</kit-button>
+      </div>
+      <div class="flex-1 overflow-y-auto min-h-0 p-3 space-y-2">
+        <kit-empty v-if="dialogues.length === 0" icon="chat_bubble_outline" title="暂无对话"
+          desc="各页 *_audio_scripts.json 尚未生成对话脚本"></kit-empty>
+        <div v-for="pg in pages" :key="pg.page" class="bg-surface-container-lowest rounded-xl p-3 space-y-2">
+          <div class="flex items-center gap-2 pb-2">
+            <span class="text-xs font-semibold text-primary font-mono">第 {{ pg.page }} 页</span>
+            <kit-badge variant="info">{{ pg.dialogues.length }} 条对话</kit-badge>
+          </div>
+            <div v-for="d in pg.dialogues" :key="pageKey(pg, d)" class="py-2 border-b border-outline-variant last:border-b-0">
+              <!-- 第一行：元信息 -->
+              <div class="flex items-center gap-2">
+                <kit-badge class="flex-shrink-0">{{ d.ref || '对话' }}</kit-badge>
+                <kit-chip class="flex-shrink-0">{{ d.speaker || '未知' }}</kit-chip>
+                <button v-if="d.performance" class="kit-badge flex-shrink-0 cursor-pointer"
+                        :class="perfOpen[pageKey(pg, d)] ? 'kit-badge--info' : 'bg-surface-container-high text-on-surface-variant'"
+                        @click="perfOpen[pageKey(pg, d)] = !perfOpen[pageKey(pg, d)]"
+                        :title="perfOpen[pageKey(pg, d)] ? '收起导演台词' : '展开导演台词'">
+                  导演台词
+                </button>
+                <span v-else-if="d.tone" class="text-xs text-on-surface-variant flex-shrink-0">{{ d.tone }}</span>
+                <div class="flex-1"></div>
+                <span class="inline-flex items-center gap-1 text-xs text-on-surface-variant flex-shrink-0">
+                  <kit-status-dot :status="speakerReady(d.speaker) ? 'ok' : 'warning'"></kit-status-dot>
+                  {{ speakerReady(d.speaker) ? '有参考' : '无参考' }}
+                </span>
+                <audio v-if="audioOf[pageKey(pg, d)]" controls :src="audioOf[pageKey(pg, d)]" class="h-6"></audio>
+                <kit-button size="sm" variant="outlined" :loading="busy[pageKey(pg, d)]" @click="genDialogue(pg, d)">生成</kit-button>
+              </div>
+              <!-- 第二行：对话内容 -->
+              <div class="mt-1.5 text-xs leading-5 text-on-surface">{{ d.text }}</div>
+              <div v-if="d.performance && perfOpen[pageKey(pg, d)]"
+                   class="mt-1.5 p-2 rounded-lg bg-surface-container-lowest border border-outline-variant text-xs leading-5 text-on-surface-variant whitespace-pre-wrap">
+                {{ d.performance }}
+              </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <input ref="fileInput" type="file" accept=".mp3,.wav,.ogg,.opus,.pcm" class="hidden" @change="onFilePicked">
+</div>
+
+
+<script src="/vendor/vue.global.prod.js"></script>
+<script src="/vendor/kit.js"></script>
+<script>
+  const app = Vue.createApp({
+    setup() {
+      const sessions = Vue.ref([]);
+      const session = Vue.ref('');
+      const chars = Vue.ref([]);
+      const pages = Vue.ref([]);
+      const health = Vue.reactive({ loaded: false, keyReady: false });
+      const busy = Vue.reactive({});
+      const audioOf = Vue.reactive({});
+      const perfOpen = Vue.reactive({});
+      const genAllRunning = Vue.ref(false);
+      const fileInput = Vue.ref(null);
+      const selectedChar = Vue.ref(null);
+      const playing = Vue.reactive({});
+      const audioEls = {};
+      let pendingSlot = null;
+
+      const sessionOptions = Vue.computed(() => sessions.value.map((s) => ({ label: s, value: s })));
+      const dialogues = Vue.computed(() => pages.value.flatMap((pg) => pg.dialogues));
+      const selectedCharObj = Vue.computed(() => chars.value.find((c) => c.name === selectedChar.value) || null);
+      // 兜底：对话里出现但 characters.json 没建档的 speaker，自动并入左侧列表展示
+      const allChars = Vue.computed(() => {
+        const known = new Map(chars.value.map((c) => [c.name, c]));
+        const merged = [...chars.value];
+        for (const d of dialogues.value) {
+          const name = (d.speaker || '').trim();
+          if (!name || known.has(name)) continue;
+          const entry = { name, inFile: false, voiceprint_desc: '（对话中出现，尚未建档）' };
+          known.set(name, entry);
+          merged.push(entry);
+        }
+        return merged;
+      });
+
+      function selectChar(c) {
+        selectedChar.value = c.name;
+        if (c.inFile === false) {
+          // 未建档角色，点卡片时自动写入 characters.json 空档案，让用户可以直接补描述
+          saveChar({ name: c.name, voiceprint_desc: '' });
+        }
+      }
+
+      function charAudioUrl(c) {
+        return c.voiceprint_url || c.final_ref_url || c.api_ref_url || null;
+      }
+      function setAudioRef(name, el) { if (el) audioEls[name] = el; }
+      function togglePlay(c) {
+        const el = audioEls[c.name];
+        if (!el) return;
+        // 暂停其他正在播的
+        Object.entries(audioEls).forEach(([n, e]) => { if (n !== c.name) { e.pause(); playing[n] = false; } });
+        if (playing[c.name]) { el.pause(); playing[c.name] = false; }
+        else { el.play(); playing[c.name] = true; }
+      }
+
+      async function api(url, opts) {
+        const resp = await fetch(url, opts);
+        const data = await resp.json().catch(() => ({ ok: false, message: '响应解析失败' }));
+        if (data && data.error && !data.message) data.message = data.error;
+        return data;
+      }
+
+      async function loadHealth() {
+const d = await api('/api/audio/health');
+        health.keyReady = !!d.keyReady;
+        health.loaded = true;
+      }
+      async function loadSessions() {
+        const d = await api('/api/sessions');
+        sessions.value = d.sessions || [];
+        const remembered = localStorage.getItem('audio_tool_last_session');
+        if (remembered && sessions.value.includes(remembered)) {
+          session.value = remembered;
+        } else if (sessions.value.length) {
+          session.value = sessions.value[0];
+        }
+        if (session.value) await loadAll();
+      }
+      async function onSessionChange() {
+        localStorage.setItem('audio_tool_last_session', session.value);
+        selectedChar.value = null;
+        await loadAll();
+      }
+      async function loadAll() {
+        if (!session.value) return;
+        const [c, s] = await Promise.all([
+          api('/api/session/' + encodeURIComponent(session.value) + '/characters'),
+          api('/api/session/' + encodeURIComponent(session.value) + '/audio-scripts'),
+        ]);
+        chars.value = c.characters || [];
+        pages.value = s.pages || [];
+        await restoreAudios();
+      }
+      // 刷新后恢复已生成的对话音频：voices/dlg_<page>_对话N_<角色>.mp3 与 json 的 ref 对上就回填
+      async function restoreAudios() {
+        const d = await api('/api/session/' + encodeURIComponent(session.value) + '/dialogue-audios');
+        const files = d.files || [];
+        for (const pg of pages.value) {
+          for (const dlg of pg.dialogues) {
+            const refTag = (dlg.ref || '').replace('@', '');
+            if (!refTag) continue;
+            const hit = files.find((n) => n.startsWith('dlg_' + pg.page + '_' + refTag + '_'));
+            if (hit) audioOf[pageKey(pg, dlg)] = '/voices/' + encodeURIComponent(session.value) + '/' + encodeURIComponent(hit);
+          }
+        }
+      }
+      function findChar(name) { return chars.value.find((c) => c.name === name); }
+      function speakerReady(name) {
+        const c = findChar(name);
+        return !!(c && (c.final_ref_url || c.api_ref_url));
+      }
+      function pageKey(pg, d) { return pg.page + ':' + (d.ref || d.text.slice(0, 8)); }
+
+      async function saveChar(c) {
+        const d = await api('/api/session/' + encodeURIComponent(session.value) + '/characters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: c.name, voiceprint_desc: c.voiceprint_desc }),
+        });
+        if (d.ok) Vue.app.config === undefined && null;
+        if (d.ok) { /* toast 由全局代理 */ } 
+        window.dispatchEvent(new CustomEvent('kit-toast', { detail: d.ok ? 'saved' : d.message }));
+        if (!d.ok) alertNotify('保存失败: ' + d.message);
+      }
+
+      function pickFile(c, slot) {
+        pendingSlot = { name: c.name, slot };
+        fileInput.value.click();
+      }
+      async function onFilePicked(e) {
+        const f = e.target.files[0];
+        e.target.value = '';
+        if (!f || !pendingSlot) return;
+        const ext = (f.name.split('.').pop() || 'mp3').toLowerCase();
+        const buf = await f.arrayBuffer();
+        let binary = '';
+        const bytes = new Uint8Array(buf);
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        const d = await api('/api/session/' + encodeURIComponent(session.value) + '/ref-audio', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: pendingSlot.name, slot: pendingSlot.slot, ext, dataBase64: btoa(binary) }),
+        });
+        if (d.ok) { chars.value = d.characters; notify('已保存参考音频', 'success'); }
+        else notify('上传失败: ' + d.message, 'error');
+        pendingSlot = null;
+      }
+
+      function handleNoKey(d) {
+        if (d.code === 'NO_KEY') {
+          notify(d.message + ' 请先在设置界面完成配置后刷新本页。', 'error');
+          return true;
+        }
+        return false;
+      }
+
+      async function genVoiceprint(c) {
+        busy['vp_' + c.name] = true;
+        try {
+          const d = await api('/api/audio/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session: session.value, name: c.name, purpose: 'voiceprint' }),
+          });
+          if (!d.ok) { if (!handleNoKey(d)) notify('生成失败: ' + d.message, 'error'); return; }
+          const r = await api('/api/session/' + encodeURIComponent(session.value) + '/characters');
+          const updated = (r.characters || []).find((x) => x.name === c.name);
+          if (updated) Object.assign(c, updated);
+          notify('声纹已生成', 'success');
+        } finally { busy['vp_' + c.name] = false; }
+      }
+
+      async function genDialogue(pg, d) {
+        const key = pageKey(pg, d);
+        busy[key] = true;
+        try {
+          const r = await api('/api/audio/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              session: session.value, name: d.speaker, purpose: 'dialogue',
+              text: d.text, tone: d.tone || '', performance: d.performance || '',
+              ref: d.ref || '', page: pg.page,
+            }),
+          });
+          if (!r.ok) { if (!handleNoKey(r)) notify('生成失败: ' + r.message, 'error'); return false; }
+          if (r.warning) notify(r.warning, 'warning');
+          audioOf[key] = r.url;
+          return true;
+        } finally { busy[key] = false; }
+      }
+
+      async function genAll() {
+        genAllRunning.value = true;
+        let okCount = 0;
+        try {
+          for (const pg of pages.value) {
+            for (const d of pg.dialogues) {
+              const done = await genDialogue(pg, d);
+              if (done) okCount++;
+            }
+          }
+          notify('批量生成完成：' + okCount + '/' + dialogues.value.length, okCount === dialogues.value.length ? 'success' : 'warning');
+        } finally { genAllRunning.value = false; }
+      }
+
+      // notify 兼容：kit-ui 全局 $notify 在 setup 中通过 getCurrentInstance 获取不便，这里用 app 级代理
+      let notifier = null;
+      function notify(msg, type) {
+        if (notifier) notifier[type === 'error' ? 'error' : type === 'warning' ? 'warning' : 'success'](String(msg));
+        else console.log('[notify]', type, msg);
+      }
+
+      Vue.onMounted(async () => {
+        await loadHealth();
+        await loadSessions();
+      });
+
+      // $notify 挂到实例后注入
+      const instance = Vue.getCurrentInstance();
+      Vue.nextTick(() => { notifier = instance && instance.appContext.config.globalProperties.$notify; });
+
+      return {
+        sessions, session, chars, allChars, pages, health, busy, audioOf, perfOpen, genAllRunning, fileInput,
+        sessionOptions, dialogues,
+        selectedChar, selectedCharObj, selectChar, playing,
+        charAudioUrl, setAudioRef, togglePlay,
+        onSessionChange, saveChar, pickFile, onFilePicked, genVoiceprint, genDialogue, genAll,
+        speakerReady, pageKey,
+      };
+    },
+  });
+  app.use(window.UIKit);
+  app.mount('#app');
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://unpkg.com/kit-ui-js@latest/kit.css">
+</head><body>
+<div id="app"><kit-button variant="outlined" size="sm" icon="save">测试</kit-button></div>
+<script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://unpkg.com/kit-ui-js@latest/kit.js"></script>
+<script>
+window.__log = [];
+try {
+  const app = Vue.createApp({ template: '<kit-button variant="outlined" size="sm" icon="save">测试</kit-button>' });
+  app.use(window.UIKit);
+  app.mount('#app');
+  window.__log.push('mounted');
+} catch (e) { window.__log.push('ERR ' + e.message); }
+</script>
+</body></html>

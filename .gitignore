@@ -1,0 +1,21 @@
+# 画布数据（每个会话的图片和历史，体积大、会不断变化）
+sessions/
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 临时文件
+.tmp-*
+*.log
+
+# CodeGraph 索引（可随时重建）
+.codegraph/
+
+# 浏览器调试配置（Chrome 自动生成，随时可重建）
+.cdp-panel/
+.cdp/
+
+# 本地密钥（API key），不进版本库
+settings.json
+

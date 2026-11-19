@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>检查图渲染 · 后台实时渲染</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #111;
+    font: 13px/1.5 "Microsoft YaHei", system-ui; color: #ddd; }
+  body { display: flex; }
+  .panel { width: 330px; padding: 14px; overflow-y: auto; background: #1a1a1a;
+    border-right: 1px solid #333; flex: 0 0 auto; }
+  .panel h2 { font-size: 14px; margin: 0 0 6px; color: #fff; }
+  .panel h3 { font-size: 12px; margin: 14px 0 6px; color: #888;
+    border-top: 1px solid #333; padding-top: 12px; }
+  .row { margin: 6px 0; display: flex; align-items: center; gap: 8px; }
+  .row label { flex: 0 0 96px; color: #aaa; }
+  .row input[type=number], .row input[type=text] { flex: 1; min-width: 0; background: #222;
+    border: 1px solid #444; color: #eee; padding: 3px 6px; border-radius: 4px; }
+  .row input[type=checkbox] { margin: 0; }
+  .row select { background: #222; border: 1px solid #444; color: #eee; padding: 3px; max-width: 170px; }
+  .row .val { color: #7ab; font: 11px monospace; flex: 0 0 auto; }
+  .hint { color: #777; font-size: 11px; line-height: 1.5; margin: 2px 0 2px 104px; }
+  .focus { margin: 4px 0 4px 104px; }
+  .focus-item { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+  .focus-item input { background: #222; border: 1px solid #444; color: #eee;
+    padding: 3px 6px; border-radius: 4px; width: 150px; font: 12px monospace; }
+  .focus-item button { background: #300; color: #f88; border: 1px solid #633;
+    border-radius: 4px; padding: 2px 8px; cursor: pointer; }
+  .addfocus { margin: 4px 0 4px 104px; background: #223; color: #9cf; border: 1px solid #446;
+    border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+  .boxes { margin: 4px 0 4px 104px; max-height: 220px; overflow-y: auto; }
+  .box-item { display: flex; align-items: center; gap: 6px; margin: 2px 0;
+    font-size: 12px; padding: 2px 6px; border-radius: 4px; background: #1e1e1e; cursor: pointer; }
+  .box-item:hover { background: #262626; }
+  .box-item .num { color: #7ab; font: 11px monospace; flex: 0 0 28px; }
+  .box-item .txt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .box-item .src { color: #888; font: 10px monospace; flex: 0 0 auto; }
+  .box-item .fdot { color: #f80; font: 10px; }
+  .stage { flex: 1; position: relative; min-width: 0; background: #0a0a0a;
+    display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .stage img { transform-origin: 0 0; will-change: transform;
+    box-shadow: 0 0 40px #000; max-width: none; max-height: none; }
+  .stage { cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none; }
+  .stage.dragging { cursor: grabbing; }
+  .status { position: absolute; left: 12px; top: 12px; padding: 6px 10px; border-radius: 6px;
+    background: rgba(0,0,0,.5); color: #cfd6e4; font: 12px/1.6 ui-monospace, monospace;
+    pointer-events: none; white-space: pre; }
+  .urlbar { position: absolute; left: 0; right: 0; bottom: 0; background: #000c;
+    padding: 8px 12px; font: 10px monospace; color: #6c6; word-break: break-all;
+    border-top: 1px solid #333; }
+  .spin { position: absolute; right: 14px; top: 14px; color: #7ab; font: 12px monospace; display: none; }
+  .spin.on { display: block; }
+  .err { color: #f66; font-size: 11px; margin: 2px 0 2px 104px; display: none; }
+  .err.on { display: block; }
+  .ex { color: #789; font-size: 11px; margin: 4px 0 0 104px; line-height: 1.7; }
+  .ex span { color: #7ab; cursor: pointer; text-decoration: underline dotted; }
+</style>
+</head>
+<body>
+<div class="panel">
+  <h2>检查图渲染（后台出图）</h2>
+  <div class="info">改参数 → 防抖后请求 /render → 右侧显示后台返回的 JPEG（含左侧/顶部坐标边距）。</div>
+  <div class="row"><label>页面</label><select id="page"></select></div>
+  <h3>参考线 grid</h3>
+  <div class="row"><label>画参考线</label><input type="checkbox" id="gridOn" checked></div>
+  <div class="row"><label>细线间隔</label><input type="number" id="minor" value="50" min="10" max="400" step="10"><span class="val">px</span></div>
+  <div class="row"><label>粗线间隔</label><input type="number" id="major" value="100" min="0" max="1000" step="50"><span class="val">px(0=无)</span></div>
+  <div class="row"><label>标注刻度</label><input type="checkbox" id="labels" checked></div>
+  <div class="hint">参考线按原图坐标绘制；裁剪后延伸到左侧/顶部边距，坐标标在图外（左侧数字旋转90°）。</div>
+  <div class="row"><label>边距宽度</label><input type="number" id="margin" value="64" min="40" max="200" step="8"><span class="val">px</span></div>
+  <h3>裁剪 rect（单个）</h3>
+  <div class="row"><label>裁剪区域</label><input type="text" id="rect" placeholder="x1,y1,x2,y2 留空=整页"></div>
+  <div class="ex">示例：<span onclick="setRect('1000,90,1180,1200')">1000,90,1180,1200 右上旁白列</span> ·
+    <span onclick="setRect('95,330,185,620')">95,330,185,620 左侧旁白</span></div>
+  <h3>focus 着重框（可多个）</h3>
+  <div class="hint">在整页图上画橙色粗框强调某区域，不影响输出范围。</div>
+  <div class="focus" id="focusList"></div>
+  <button class="addfocus" id="addFocus">+ 添加 focus</button>
+  <h3>标记 overlay（框）</h3>
+  <div class="row"><label>显示模式</label>
+    <select id="srcMode">
+      <option value="all">全部框</option>
+      <option value="include">只显示勾选框</option>
+      <option value="exclude">排除勾选框</option>
+    </select></div>
+  <div class="hint">列出本页 JSON regions 每个框（#编号即图上标注）。点条目可设为 focus。</div>
+  <div class="boxes" id="boxes"></div>
+  <div class="row"><label>框颜色</label><input type="checkbox" id="colored" checked></div>
+  <div class="row"><label>写文字</label><input type="checkbox" id="showText" checked></div>
+  <div class="row"><label>框线宽</label><input type="number" id="lw" value="2" min="1" max="8"></div>
+  <h3>输出参数</h3>
+  <div class="row"><label>灰度</label><input type="checkbox" id="gray" checked></div>
+  <div class="row"><label>底图质量</label><input type="number" id="q" value="35" min="15" max="80" step="5"><span class="val" id="qV">35</span></div>
+  <div class="hint">q=原图压缩质量（默认 35：够看坐标和文字位置）。参考线/坐标/框文字始终高质量绘制，不受 q 影响。</div>
+  <div class="row"><label>底图缩放</label><input type="number" id="scale" value="1" min="0.25" max="1" step="0.25"><span class="val" id="sV">1x</span></div>
+  <div class="hint">scale=0.5 把原图减半再压缩，体积再降约 4 倍；坐标标注自动换算回原始像素值。</div>
+  <div class="row"><label>输出缩放</label><input type="number" id="zoom" value="1" min="0.25" max="4" step="0.25"><span class="val" id="zoomV">1x</span></div>
+  <div class="err" id="err"></div>
+</div>
+<div class="stage">
+  <img id="out" alt="渲染结果">
+  <div class="status" id="status"></div>
+  <div class="spin" id="spin">渲染中…</div>
+  <div class="urlbar" id="urlbar"></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const num = id => parseFloat($(id).value);
+let SESSION = "DEMO漫画解析";
+let BOXES = [];
+let FOCUSES = [];
+
+async function init() {
+  const d = await (await fetch("/api/session/" + encodeURIComponent(SESSION))).json();
+  const sel = $("page");
+  sel.innerHTML = d.pages.map(p => '<option value="' + p.page + '">' + p.page +
+    " (" + (p.regions || []).length + "框)</option>").join("");
+  sel.value = "00003";
+  sel.addEventListener("change", () => loadPage(sel.value));
+  await loadPage("00003");
+}
+
+async function loadPage(page) {
+  const p = await (await fetch("/api/session/" + encodeURIComponent(SESSION) + "/page/" + page)).json();
+  BOXES = (p.regions || []).map((r, i) => ({ enabled: true, idx: i,
+    box: r.box.map(Number),
+    text: (r.text || r.translation || ""), src: r.source || "" }));
+  renderBoxList();
+  FOCUSES = [];
+  renderFocus();
+  render();
+}
+
+function renderBoxList() {
+  $("boxes").innerHTML = BOXES.map(b =>
+    '<label class="box-item"><input type="checkbox" class="boxck" data-i="' + b.idx + '"' +
+    (b.enabled ? " checked" : "") + '><span class="num">#' + b.idx + '</span>' +
+    '<span class="txt">' + (b.text || "(无文字)").slice(0, 22) + '</span>' +
+    '<span class="src">' + b.src + '</span><span class="fdot" title="设为 focus">◎</span></label>').join("");
+  for (const ck of document.querySelectorAll(".boxck")) {
+    ck.addEventListener("change", e => {
+      BOXES[+e.target.dataset.i].enabled = e.target.checked;
+      schedule();
+    });
+  }
+  for (const dot of document.querySelectorAll(".fdot")) {
+    dot.addEventListener("click", e => {
+      e.preventDefault();
+      const i = +dot.parentElement.querySelector(".boxck").dataset.i;
+      const b = BOXES[i].box.map(Math.round).join(",");
+      FOCUSES.push({ enabled: true, value: b });
+      renderFocus(); schedule();
+    });
+  }
+}
+
+function renderFocus() {
+  $("focusList").innerHTML = FOCUSES.map((f, i) =>
+    '<div class="focus-item"><input type="checkbox" class="fckeck" data-i="' + i + '"' +
+    (f.enabled ? " checked" : "") + '><input type="text" class="fval" data-i="' + i +
+    '" value="' + f.value + '" placeholder="x1,y1,x2,y2">' +
+    '<button class="fdel" data-i="' + i + '">×</button></div>').join("");
+  for (const ck of document.querySelectorAll(".fckeck"))
+    ck.addEventListener("change", e => { FOCUSES[+e.target.dataset.i].enabled = e.target.checked; schedule(); });
+  for (const tv of document.querySelectorAll(".fval"))
+    tv.addEventListener("input", e => { FOCUSES[+e.target.dataset.i].value = e.target.value; schedule(); });
+  for (const bd of document.querySelectorAll(".fdel"))
+    bd.addEventListener("click", e => { FOCUSES.splice(+e.target.dataset.i, 1); renderFocus(); schedule(); });
+}
+$("addFocus").addEventListener("click", () => { FOCUSES.push({ enabled: true, value: "" }); renderFocus(); });
+function setRect(v) { $("rect").value = v; schedule(); }
+window.setRect = setRect;
+
+function currentParams() {
+  const p = new URLSearchParams();
+  p.set("session", SESSION);
+  p.set("page", $("page").value);
+  if ($("gridOn").checked) {
+    p.set("grid", "1"); p.set("minor", String(num("minor"))); p.set("major", String(num("major")));
+    if ($("labels").checked) p.set("labels", "1");
+  }
+  p.set("margin", String(num("margin")));
+  const rect = $("rect").value.trim();
+  if (rect) p.set("rect", rect);
+  const fs = FOCUSES.filter(f => f.enabled && f.value.trim()).map(f => f.value.trim());
+  if (fs.length) p.set("focus", fs.join(";"));
+  const on = BOXES.filter(b => b.enabled).map(b => b.idx);
+  const off = BOXES.filter(b => !b.enabled).map(b => b.idx);
+  if (off.length > 0) {
+    if (on.length === 0) { p.set("src_mode", "exclude"); p.set("idx", ""); }
+    else { p.set("src_mode", "include"); p.set("idx", on.join(",")); }
+  }
+  if (!$("colored").checked) p.set("mono_boxes", "1");
+  if (!$("showText").checked) p.set("no_text", "1");
+  p.set("lw", String(num("lw")));
+  if ($("gray").checked) p.set("gray", "1");
+  p.set("q", String(num("q")));
+  if (num("scale") !== 1) p.set("scale", String(num("scale")));
+  if (num("zoom") !== 1) p.set("zoom", String(num("zoom")));
+  return p;
+}
+
+let timer = null;
+function schedule() { clearTimeout(timer); timer = setTimeout(render, 400); }
+let seq = 0;
+async function render() {
+  const p = currentParams();
+  const url = "/render?" + p.toString();
+  $("urlbar").textContent = "GET " + url;
+  $("spin").classList.add("on");
+  $("err").classList.remove("on");
+  const mine = ++seq;
+  const t0 = performance.now();
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      const j = await resp.json().catch(() => ({}));
+      throw new Error(j.error || ("HTTP " + resp.status));
+    }
+    const blob = await resp.blob();
+    if (mine !== seq) return;
+    $("out").src = URL.createObjectURL(blob);
+    $("status").textContent = (blob.size / 1024).toFixed(0) + " KB · " +
+      (performance.now() - t0).toFixed(0) + " ms";
+  } catch (e) {
+    if (mine !== seq) return;
+    $("err").textContent = "渲染失败: " + e.message;
+    $("err").classList.add("on");
+  } finally {
+    if (mine === seq) $("spin").classList.remove("on");
+  }
+}
+
+for (const id of ["gridOn","minor","major","labels","margin","rect","srcMode",
+                  "colored","showText","lw","gray","q","scale","zoom","page"]) {
+  $(id).addEventListener("input", () => {
+    $("qV").textContent = num("q");
+    $("sV").textContent = num("scale") + "x";
+    $("zoomV").textContent = num("zoom") + "x";
+    if (id === "page") loadPage($("page").value);
+    else schedule();
+  });
+}
+init();
+
+/* ===================== 图片区缩放/平移 ===================== */
+const stage = document.querySelector(".stage");
+const img = $("out");
+img.draggable = false;
+const ZOOM_SPEED = 0.0018;
+const view = { scale: 1, offsetX: 0, offsetY: 0, minScale: 0.05, maxScale: 20 };
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+// img 布局基准位置（flex 居中），屏幕坐标 = base + offset + world*scale
+let baseX = 0, baseY = 0;
+
+function measureBase() {
+  baseX = img.offsetLeft; baseY = img.offsetTop;
+}
+function applyView() {
+  img.style.transform = "translate(" + view.offsetX + "px," + view.offsetY + "px) scale(" + view.scale + ")";
+}
+// 适配：图片完整居中显示（scale=1 时即为布局尺寸，不放大）
+function fitView() {
+  measureBase();
+  const sw = stage.clientWidth, sh = stage.clientHeight;
+  const iw = img.offsetWidth || 1, ih = img.offsetHeight || 1;
+  const k = Math.min(sw / iw, sh / ih, 1);
+  view.scale = k;
+  view.offsetX = (sw - iw * k) / 2 - baseX;
+  view.offsetY = (sh - ih * k) / 2 - baseY;
+  applyView();
+}
+function zoomAt(sx, sy, factor) {
+  const s2 = clamp(view.scale * factor, view.minScale, view.maxScale);
+  if (s2 === view.scale) return;
+  const k = s2 / view.scale;
+  const rx = sx - baseX, ry = sy - baseY;
+  view.offsetX = rx - (rx - view.offsetX) * k;
+  view.offsetY = ry - (ry - view.offsetY) * k;
+  view.scale = s2;
+  applyView();
+}
+img.addEventListener("load", () => { fitView(); });
+window.addEventListener("resize", fitView);
+
+stage.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const r = stage.getBoundingClientRect();
+  let dy = e.deltaY;
+  if (e.deltaMode === 1) dy *= 16; else if (e.deltaMode === 2) dy *= stage.clientHeight;
+  zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-dy * (e.ctrlKey ? ZOOM_SPEED * 4 : ZOOM_SPEED)));
+}, { passive: false });
+
+let dragging = false, dragId = null, lastX = 0, lastY = 0;
+stage.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0 && e.button !== 1) return;
+  e.preventDefault();
+  dragging = true; dragId = e.pointerId;
+  lastX = e.clientX; lastY = e.clientY;
+  stage.setPointerCapture(e.pointerId);
+  stage.classList.add("dragging");
+});
+stage.addEventListener("pointermove", (e) => {
+  if (!dragging || e.pointerId !== dragId) return;
+  view.offsetX += e.clientX - lastX;
+  view.offsetY += e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  applyView();
+});
+function endDrag(e) {
+  if (e.pointerId !== dragId) return;
+  dragging = false; dragId = null;
+  stage.classList.remove("dragging");
+  if (stage.hasPointerCapture(e.pointerId)) stage.releasePointerCapture(e.pointerId);
+}
+stage.addEventListener("pointerup", endDrag);
+stage.addEventListener("pointercancel", endDrag);
+stage.addEventListener("dblclick", fitView);
+window.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") return;
+  if (e.key === "0" || e.key === "r" || e.key === "R") fitView();
+});
+</script>
+</body>
+</html>
+
