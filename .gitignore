@@ -19,3 +19,6 @@ __pycache__/
 # 本地密钥（API key），不进版本库
 settings.json
 
+# 协作认领状态（本机临时状态，别提交）
+.coord/
+
