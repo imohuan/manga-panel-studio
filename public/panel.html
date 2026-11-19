@@ -75,11 +75,9 @@
     </div>
 
     <!-- ========== 历史 ========== -->
-    <div v-else-if="sideTab === 'history'">
-      <!-- 筛选条单独占一行，清空按钮放到第二行右侧，避免按钮被挤成竖排或截断 -->
-      <!-- 筛选条吸顶：列表往下滚时按钮不会被面板顶栏切掉一半 -->
-      <div class="hist-bar" style="flex-wrap:wrap;row-gap:4px;position:sticky;top:0;z-index:2;
-        background:#fff;padding:2px 0 4px;margin-top:-2px">
+    <!-- 上下 flex：标签固定在上面，只有下面的卡片列表滚动（不再用 sticky 叠在内容上） -->
+    <div v-else-if="sideTab === 'history'" style="display:flex;flex-direction:column;height:100%;min-height:0">
+      <div class="hist-bar" style="flex:0 0 auto;flex-wrap:wrap;row-gap:4px;padding:0 0 6px">
         <!-- 筛选按钮变多、面板又窄：排成两行四列，保证每个按钮都是完整文字 -->
         <div class="modes"
           style="height:auto;flex:1 1 100%;min-width:0;display:grid;
@@ -96,6 +94,8 @@
             :disabled="!history.length" title="清空全部历史" @click="clearHistory">清空</button>
         </div>
       </div>
+      <!-- 卡片列表单独滚动：标签永远在上面完整可见 -->
+      <div style="flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding-right:2px">
       <kit-empty v-if="!filteredHistory.length" icon="history" title="还没有记录" desc="每次识别或手动改框都会留一条"></kit-empty>
 
       <details v-for="o in filteredHistory" :key="o.id" class="op-card" :data-opid="o.id" :open="openOps.has(o.id)"
@@ -216,6 +216,7 @@
           </div>
         </div>
       </details>
+      </div>
     </div>
 
     <!-- ========== 区域 ========== -->
