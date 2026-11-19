@@ -10,7 +10,6 @@
 | 历史记录 · 中间图 | 历史记录 图片保存 | `server/canvas.mjs`、`server/ocr_service.py`、`server/mask_column_ocr.py`、`server/compress_image.py` | 前端三个热文件 |
 | 右侧面板 UI | 右侧面板 UI 优化 | `public/panel.html`（布局、吸顶、底部固定）、`public/index.html`（样式） | `public/canvas.js` |
 | 多选框 · 快捷键 | 多选框+ 快捷键 | `public/canvas.js`（选区、键盘、多框识别）、`public/panel.html` 的按钮区 | 服务端 |
-| 技能迭代 v2 / v3 | 技能迭代 v2、技能迭代 v3 | `skills/manga-canvas-pipeline/SKILL.md`、`scripts/canvas_cli.py`（同一时间只允许一个） | 前端、服务端 |
 
 ## 热文件排队
 

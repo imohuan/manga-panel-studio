@@ -21,12 +21,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STATE_DIR = path.join(ROOT, '.coord');
 const STATE_FILE = path.join(STATE_DIR, 'claims.json');
-const HOT_FILES = [
-  'public/canvas.js', 'public/panel.html', 'public/index.html',
-  // 「技能迭代 v2 / v3 / v1」几个对话都会改进这份技能，同样容易互相覆盖
-  'skills/manga-canvas-pipeline/SKILL.md',
-  'skills/manga-canvas-pipeline/scripts/canvas_cli.py',
-];
+const HOT_FILES = ['public/canvas.js', 'public/panel.html', 'public/index.html'];
 // 共享的运行时：谁要重启服务，先认领，避免别人正在测的时候被打断
 const RUNTIME = ['runtime:canvas', 'runtime:ocr'];
 const ALL = [...HOT_FILES, ...RUNTIME];
