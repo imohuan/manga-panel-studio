@@ -25,7 +25,6 @@ const DEFAULT_SETTINGS = {
   doubao: { apiKey: '', model: 'seed-audio-1.0', voice: '', referenceAudio: '' },
   translator: { baseUrl: 'http://127.0.0.1:5009', projectRoot: '' },
   canvas: {
-    sessionsDir: '',     // 空 = %LOCALAPPDATA%/manga-panel-studio/sessions
     dataDir: '',         // 空 = %LOCALAPPDATA%/manga-panel-studio
     canvasBaseUrl: '',   // 空 = http://127.0.0.1:7788
     ocrBaseUrl: '',      // 空 = http://127.0.0.1:5009
@@ -37,7 +36,7 @@ function resolveCanvasCfg(raw) {
   const c = (raw && raw.canvas) || {};
   return {
     dataDir: c.dataDir || HOME,
-    sessionsDir: c.sessionsDir || path.join(c.dataDir || HOME, 'sessions'),
+    sessionsDir: path.join(c.dataDir || HOME, 'sessions'),
     canvasBaseUrl: c.canvasBaseUrl || 'http://127.0.0.1:7788',
     ocrBaseUrl: c.ocrBaseUrl || 'http://127.0.0.1:5009',
     ffmpegPath: c.ffmpegPath || '',
@@ -65,6 +64,7 @@ function loadSettings() {
       openai: { ...DEFAULT_SETTINGS.openai, ...(raw.openai || {}) },
       doubao: { ...DEFAULT_SETTINGS.doubao, ...(raw.doubao || {}) },
       translator: { ...DEFAULT_SETTINGS.translator, ...(raw.translator || {}) },
+      canvas: { ...DEFAULT_SETTINGS.canvas, ...(raw.canvas || {}) },
     };
   } catch { return structuredClone(DEFAULT_SETTINGS); }
 }
@@ -82,7 +82,7 @@ const publicView = (s) => ({
 // 前端提交 "" 时保留旧 key（脱敏值不回传真实 key）
 const mergeIncoming = (current, incoming) => {
   const merged = structuredClone(current);
-  for (const section of ['openai', 'doubao', 'translator']) {
+  for (const section of ['openai', 'doubao', 'translator', 'canvas']) {
     for (const [k, v] of Object.entries(incoming?.[section] || {})) {
       if (k === 'apiKey' || k === 'referenceAudio') {
         if (typeof v === 'string' && v.length > 0) merged[section][k] = v;

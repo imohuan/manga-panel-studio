@@ -40,11 +40,12 @@ const ROOT_DIR = path.resolve(__dirname, '..');   // 项目根（仓库所在目
 const PORT = 7788;                                 // 画布服务端口（画布地址 = settings.translator/canvas）
 // 路径与端口统一从 settings.json 读，不再写死盘符。
 // 优先级：环境变量 > settings.json > 内置默认。
-const SETTINGS0 = loadSettings();
-const canvasCfg = resolvePaths(SETTINGS0);
-const ROOT = canvasCfg.ROOT;                       // sessions 目录（默认 %LOCALAPPDATA%/manga-panel-studio/sessions）
-const OCR = process.env.STUDIO_OCR_BASE || canvasCfg.ocrBaseUrl;
-const FFMPEG = canvasCfg.ffmpegPath || 'ffmpeg';   // 空 = 用 PATH 里的 ffmpeg，失败自动兜底到 PIL
+// ROOT/OCR/FFMPEG 用 getter：设置页保存后无需重启即可生效（下次请求就用到新值）。
+const settingsNow = () => loadSettings();
+const ROOT = () => resolvePaths(settingsNow()).ROOT;   // sessions 目录
+const OCR = () => process.env.STUDIO_OCR_BASE || resolvePaths(settingsNow()).ocrBaseUrl;
+const FFMPEG = () => resolvePaths(settingsNow()).ffmpegPath || 'ffmpeg';
+const PY = () => process.env.STUDIO_PYTHON || resolvePython(settingsNow());
 // Python 解释器：从 settings.translator.projectRoot 推导（MT 目录里有 py310/venv 就用），
 // 找不到再回退 PATH 里的 python。
 function resolvePython(settings) {
@@ -57,10 +58,9 @@ function resolvePython(settings) {
   for (const c of cands) { try { fs.accessSync(c); return c; } catch {} }
   return 'python';
 }
-const PY = process.env.STUDIO_PYTHON || resolvePython(SETTINGS0);
 // ---- 设置界面 + 音频管理（合并自 tools/settings 与 tools/audio 独立服务）----
 // helpers 见 tools_helpers.js
-fs.mkdirSync(ROOT, { recursive: true });
+fs.mkdirSync(ROOT(), { recursive: true });
 
 // ---------- 工具 ----------
 const jpegSize = (buf) => {
@@ -91,8 +91,8 @@ const body = (req) => new Promise((r) => {
 });
 
 // ---------- 会话（一个文件夹 = 一个画布）----------
-const sessionDir = (name) => path.join(ROOT, name);
-const sessions = () => fs.readdirSync(ROOT).filter((n) => fs.statSync(path.join(ROOT, n)).isDirectory());
+const sessionDir = (name) => path.join(ROOT(), name);
+const sessions = () => fs.readdirSync(ROOT()).filter((n) => fs.statSync(path.join(ROOT(), n)).isDirectory());
 
 function listPages(session) {
   const dir = sessionDir(session);
@@ -177,14 +177,14 @@ function saveImage(session, buf, tag = 'img') {
   fs.writeFileSync(tmp, buf);
   let done = false;
   try {
-    execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-i', tmp,
+  execFileSync(FFMPEG(), ['-y', '-loglevel', 'error', '-i', tmp,
       '-vf', "scale='min(1400,iw)':-2", '-q:v', '4', out], { stdio: 'ignore' });
     done = fs.existsSync(out) && fs.statSync(out).size > 0;
   } catch { done = false; }
   if (!done) {
     // 兜底：用项目自带的 Python/PIL 压一次
     try {
-      execFileSync(PY, [path.join(__dirname, 'compress_image.py'), tmp, out], { stdio: 'ignore' });
+  execFileSync(PY(), [path.join(__dirname, 'compress_image.py'), tmp, out], { stdio: 'ignore' });
       done = fs.existsSync(out) && fs.statSync(out).size > 0;
     } catch { done = false; }
   }
@@ -376,7 +376,7 @@ async function pump() {
       const items = [];
       let totalMs = 0;
       for (const b of job.boxes) {
-        const rr = await fetch(`${OCR}/ocr/box`, {
+        const rr = await fetch(`${OCR()}/ocr/box`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ image: b64, box: b }),
         });
@@ -391,7 +391,7 @@ async function pump() {
         items,
       };
     } else {
-      const r = await fetch(`${OCR}/${endpoint}`, {
+    const r = await fetch(`${OCR()}/${endpoint}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
@@ -581,7 +581,7 @@ async function renderBoxes(job, srcBuf, boxes) {
 const script = path.join(__dirname, 'draw_boxes.py');
   const args = [script, src, out, JSON.stringify(boxes || [])];
   try {
-    await new Promise((res, rej) => execFile(PY, args, (e) => (e ? rej(e) : res())));
+  await new Promise((res, rej) => execFile(PY(), args, (e) => (e ? rej(e) : res())));
   } finally {
     fs.rmSync(src, { force: true });
   }
@@ -988,7 +988,7 @@ http.createServer(async (req, res) => {
     // 检查图渲染：灰度原图 + 参考线 + 框叠加，参数见 render_check.py
     if (p === '/render' && req.method === 'GET') {
       const args = JSON.stringify(Object.fromEntries(url.searchParams));
-      const png = await new Promise((resolve2, reject2) => execFile(PY,
+    const png = await new Promise((resolve2, reject2) => execFile(PY(),
 [path.join(__dirname, 'render_check.py'), args],
         { maxBuffer: 32 * 1024 * 1024, encoding: 'buffer', windowsHide: true },
         (err, stdout, stderr) => {
@@ -1007,7 +1007,7 @@ http.createServer(async (req, res) => {
       openaiListModels, checkOpenaiModel, doubaoTts, translatorPing,
       readCharactersRaw, normalizeCharacters, updateCharacter,
       charVoicesView, readAudioScripts, callDoubao, safeToolName, findRefPath,
-    cleanBaseUrl, maskKey, loadDoubaoAuth, ROOT,
+          cleanBaseUrl, maskKey, loadDoubaoAuth, ROOT: ROOT(),
       // 音频生成也要留历史：和识别记录放在同一个 history/ops.json
       appendOp, saveAudio, sha1,
     })) return;
@@ -1033,4 +1033,4 @@ http.createServer(async (req, res) => {
     if (res.headersSent) { try { res.end(); } catch {} return; }
     send(res, 500, { error: String(e) });
   }
-}).listen(PORT, () => console.log(`canvas http://127.0.0.1:${PORT} root=${ROOT}`));
+}).listen(PORT, () => console.log(`canvas http://127.0.0.1:${PORT} root=${ROOT()}`));

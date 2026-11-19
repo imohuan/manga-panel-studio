@@ -29,9 +29,10 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 def _sessions_root():
-    """sessions 目录：环境变量 STUDIO_SESSIONS_DIR > settings.json 的 canvas.sessionsDir
-    > 默认 %LOCALAPPDATA%/manga-panel-studio/sessions。与 canvas.mjs 保持同一来源。"""
-    env = os.environ.get("STUDIO_SESSIONS_DIR")
+    """sessions 目录固定在数据根目录下的 sessions/。
+    数据根：环境变量 STUDIO_DATA_DIR > settings.json 的 canvas.dataDir
+    > 默认 %LOCALAPPDATA%/manga-panel-studio。与 canvas.mjs 保持同一来源。"""
+    env = os.environ.get("STUDIO_DATA_DIR")
     if env:
         return Path(env)
     here = Path(__file__).resolve().parent.parent
@@ -39,8 +40,8 @@ def _sessions_root():
     if sf.exists():
         try:
             canvas = json.loads(sf.read_text(encoding="utf-8")).get("canvas") or {}
-            if canvas.get("sessionsDir"):
-                return Path(canvas["sessionsDir"])
+            if canvas.get("dataDir"):
+                return Path(canvas["dataDir"]) / "sessions"
         except Exception:
             pass
     local = os.environ.get("LOCALAPPDATA") or str(Path.home())

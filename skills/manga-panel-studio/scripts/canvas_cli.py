@@ -60,7 +60,7 @@ _canvas = _cfg.get("canvas") or {}
 _home = Path(os.environ.get("STUDIO_DATA_DIR") or _canvas.get("dataDir")
              or (Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "manga-panel-studio"))
 ROOT = _REPO
-SESSIONS_ROOT = Path(os.environ.get("STUDIO_SESSIONS_DIR") or _canvas.get("sessionsDir") or (_home / "sessions"))
+SESSIONS_ROOT = _home / "sessions"
 DEFAULT_BASE = os.environ.get("STUDIO_CANVAS_BASE") or (_canvas.get("canvasBaseUrl") or DEFAULT_BASE)
 OCR_BASE = os.environ.get("STUDIO_OCR_BASE") or (_canvas.get("ocrBaseUrl") or OCR_BASE)
 LOG_DIR = _home / "logs"
