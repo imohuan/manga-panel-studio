@@ -828,6 +828,149 @@ def check_audio_script(path, chars, issues, warns):
     return page, len(dgs)
 
 
+def norm_text(s):
+    """去掉标点空白，只留文字，用于覆盖率比对。"""
+    return "".join(ch for ch in (s or "") if ch.isalnum())
+
+
+def text_coverage(needle, hay):
+    """needle 有多少比例能在 hay 里找到（允许改字、同义改写）。"""
+    from difflib import SequenceMatcher
+    n, h = norm_text(needle), norm_text(hay)
+    if not n:
+        return 1.0
+    sm = SequenceMatcher(None, n, h, autojunk=False)
+    return sum(b.size for b in sm.get_matching_blocks()) / float(len(n))
+
+
+def is_label_or_note(text):
+    """名牌、场景注释不该进对话：短且带空格，或含身份/地点关键词。"""
+    t = (text or "").strip()
+    n = norm_text(t)
+    if len(n) < 16 and (" " in t or chr(0x3000) in t):
+        return True
+    if len(n) <= 8 and any(k in t for k in (chr(0x56fd)+chr(0x4e3b),
+                                             chr(0x5927)+chr(0x81e3),
+                                             chr(0x5e55)+chr(0x5e9c),
+                                             chr(0x5546)+chr(0x4e1a)+chr(0x8857),
+                                             chr(0x9996)+chr(0x90fd))):
+        return True
+    return False
+
+
+def frames_for_page(base, session, page):
+    try:
+        p = get_page(base, session, page)
+    except SystemExit:
+        return []
+    out = []
+    for j, r in enumerate(p.get("regions") or []):
+        t = (r.get("text") or "").strip()
+        if not norm_text(t):
+            continue
+        out.append({"idx": j, "text": t, "label": is_label_or_note(t)})
+    return out
+
+
+def best_frame_range(text, frames):
+    best = (None, None, 0.0)
+    n = len(frames)
+    for i in range(n):
+        if frames[i]["label"]:
+            continue
+        acc = ""
+        for j in range(i, n):
+            if frames[j]["label"] and j > i:
+                break
+            acc += frames[j]["text"]
+            cov = text_coverage(text, acc)
+            nf = j - i + 1
+            if cov > best[2] + 1e-9:
+                best = (i, j, cov)
+            elif abs(cov - best[2]) < 1e-9 and best[0] is not None and nf < (best[1] - best[0] + 1):
+                best = (i, j, cov)
+    return best
+
+
+def check_coverage(base, session, page, dialogues, threshold, issues, warns, notes):
+    frames = frames_for_page(base, session, page)
+    if not frames:
+        return
+    mapped = []
+    for i, d in enumerate(dialogues):
+        txt = d.get("text") or ""
+        if not norm_text(txt):
+            continue
+        tag = "%s 第 %d 条（%s）" % (page, i + 1, d.get("speaker") or "?")
+        a, b, cov = best_frame_range(txt, frames)
+        if a is None:
+            warns.append("%s: 找不到对应的原框内容" % tag)
+            continue
+        nf = b - a + 1
+        orig = "".join(frames[k]["text"] for k in range(a, b + 1))
+        mapped.append((a, b))
+        idxs = [frames[k]["idx"] for k in range(a, b + 1)]
+        if nf == 1:
+            span = "#%d" % idxs[0]
+        else:
+            span = "#%d~#%d (%d 个框)" % (idxs[0], idxs[-1], nf)
+        n_orig, n_now = len(norm_text(orig)), len(norm_text(txt))
+        if cov < threshold:
+            issues.append("%s: 覆盖率 %.0f%%，低于 %.0f%% -> 对应 %s，原文 %d 字，现在 %d 字"
+                          % (tag, cov * 100, threshold * 100, span, n_orig, n_now))
+        elif nf > 1:
+            warns.append("%s: 合并了 %d 个框（%s），覆盖率 %.0f%%"
+                         % (tag, nf, span, cov * 100))
+        elif cov < 0.95:
+            warns.append("%s: 覆盖率 %.0f%%（对应 %s，原文 %d 字，现在 %d 字）"
+                         % (tag, cov * 100, span, n_orig, n_now))
+    per_frame = {}
+    for a, b in mapped:
+        for k in range(a, b + 1):
+            per_frame[k] = per_frame.get(k, 0) + 1
+    for k, cnt in sorted(per_frame.items()):
+        if cnt == 1:
+            continue
+        # 只有该框内容被「分别」切进多条对话才算拆分；
+        # 若其中一条对话本身已完整包含它，那只是贪心匹配的重叠，不是问题。
+        split = False
+        for a, b in mapped:
+            if a <= k <= b:
+                seg = "".join(frames[x]["text"] for x in range(a, b + 1))
+                own = text_coverage(frames[k]["text"], seg)
+                if own < 0.9:
+                    split = True
+        if split:
+            warns.append("%s: 框 #%d 的内容被拆进多条对话，确认是否漏字"
+                         % (page, frames[k]["idx"]))
+    all_dlg = "".join((d.get("text") or "") for d in dialogues)
+    covered = set()
+    for a, b in mapped:
+        covered.update(range(a, b + 1))
+    for k, f in enumerate(frames):
+        if f["label"] or k in covered:
+            continue
+        cov = text_coverage(f["text"], all_dlg)
+        if cov >= threshold:
+            continue
+        notes.append("%s: 框 #%d 只有 %.0f%% 的内容进了对话，可能漏了：%s"
+                     % (page, f["idx"], cov * 100, f["text"][:26]))
+
+
+def post_audit(base, session, scope, issues, warns, notes, extra):
+    """把检查结论写进画布历史（web 失败不影响检查本身）。"""
+    payload = {"scope": scope, "by": "cli",
+               "errors": list(issues), "warns": list(warns),
+               "notes": list(notes)}
+    payload.update(extra or {})
+    try:
+        r = api(base, "POST", "/api/session/%s/audit" % session, json=payload)
+        if isinstance(r, dict) and r.get("opId"):
+            print("  （已记入历史 %s）" % r["opId"])
+    except SystemExit as e:
+        print("  （写历史失败: %s）" % e)
+
+
 def cmd_check_audio(args):
     sdir = SESSIONS_ROOT / args.session
     chars = load_characters(args.session)
@@ -835,6 +978,7 @@ def cmd_check_audio(args):
     if not files:
         raise SystemExit(str(sdir) + " 下没有 *_audio_scripts.json")
     issues, warns, pages, total = [], [], [], 0
+    cov_notes = []
     for f in files:
         page, n = check_audio_script(f, chars, issues, warns)
         if page:
@@ -856,11 +1000,24 @@ def cmd_check_audio(args):
             issues.append("%s: 对话 %d 条，但这一页只有 %d 个框" % (page, n, nreg))
         elif n < nreg:
             warns.append("%s: 对话 %d 条，框 %d 个（可能有框不需要配音）" % (page, n, nreg))
+        # 覆盖率：每条对话和该页框的 OCR 原文比对
+        if getattr(args, "coverage", None) is not None:
+            try:
+                dlg = json.loads(f.read_text(encoding="utf-8")).get("dialogues") or []
+            except Exception:
+                dlg = []
+            check_coverage(args.base, args.session, page, dlg,
+                           args.coverage, issues, warns, cov_notes)
     for w in warns:
         print("  [提示] " + w)
     for e in issues:
         print("  [错误] " + e)
+    for n in cov_notes:
+        print("  [缺漏] " + n)
     print("结果：" + ("通过" if not issues else "%d 个错误" % len(issues)))
+    post_audit(args.base, args.session, "audio", issues, warns, cov_notes, {
+        "dialogues": total, "files": len(files), "threshold": args.coverage,
+    })
     return 0 if not issues else 1
 
 
@@ -905,6 +1062,9 @@ def cmd_check_chars(args):
     for e in issues:
         print("  [错误] " + e)
     print("结果：" + ("通过" if not issues else "%d 个错误" % len(issues)))
+    post_audit(args.base, args.session, "characters", issues, warns, [], {
+        "characters": len(data),
+    })
     return 0 if not issues else 1
 
 
@@ -935,7 +1095,10 @@ def build_parser():
     s.add_argument("--dry-run", action="store_true"); s.add_argument("--force", action="store_true")
     s.set_defaults(func=lambda a: cmd_reorder_all(a) if not a.page else cmd_reorder(a))
     s = sub.add_parser("voices"); s.add_argument("session"); s.set_defaults(func=cmd_voices)
-    s = sub.add_parser("check-audio"); s.add_argument("session"); s.set_defaults(func=cmd_check_audio)
+    s = sub.add_parser("check-audio"); s.add_argument("session")
+    s.add_argument("--coverage", type=float, default=0.9,
+                   help="台词覆盖率下限，默认 0.9；设 1.0 要求逐字一致")
+    s.set_defaults(func=cmd_check_audio)
     s = sub.add_parser("check-characters"); s.add_argument("session"); s.set_defaults(func=cmd_check_chars)
     s = sub.add_parser("vp"); s.add_argument("session"); s.add_argument("names", nargs="*"); s.set_defaults(func=cmd_vp)
     s = sub.add_parser("dlg"); s.add_argument("session"); s.add_argument("--page", default=None); s.add_argument("--ref", default=None); s.add_argument("--force", action="store_true"); s.set_defaults(func=cmd_dlg)

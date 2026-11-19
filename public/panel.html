@@ -135,7 +135,7 @@
           </div>
 
           <!-- 音频生成：结果 + 真正发给豆包的提示词 / 参考音频 / 参数 -->
-          <div v-if="o.data?.scope === 'audio'" style="margin-top:8px;border-top:1px dashed #eee;padding-top:7px">
+          <div v-if="o.data?.scope === 'audio' && String(o.kind).startsWith('audio-')" style="margin-top:8px;border-top:1px dashed #eee;padding-top:7px">
             <audio v-if="o.audioUrl" controls preload="none" :src="o.audioUrl" style="width:100%;height:30px"></audio>
             <div style="font-size:9.5px;color:#999;margin-top:3px">
               {{ o.data.purpose === 'voiceprint' ? '声纹' : '对话音频' }} · {{ o.data.character || '' }}<template v-if="o.audio?.duration"> · {{ o.audio.duration }}s</template>
@@ -167,6 +167,27 @@
             </details>
           </div>
           <!-- 手动改框不存图：用页面原图 + 当时的框坐标现场画 -->
+          <!-- 静态检查（check-audio / check-characters）：结论 + 明细 -->
+          <div v-if="String(o.kind).startsWith('check-')"
+            style="margin-top:8px;border-top:1px dashed #eee;padding-top:7px">
+            <div style="font-size:10px;color:#888">
+              检查结果 · {{ o.data.pass ? '通过' : '有问题' }}
+              <template v-if="o.data.threshold"> · 阈值 {{ Math.round(o.data.threshold * 100) }}%</template>
+            </div>
+            <div v-if="(o.data.errors || []).length" style="margin-top:4px">
+              <div style="font-size:9.5px;color:#c62828">错误</div>
+              <pre style="margin:2px 0 0;max-height:200px;overflow:auto;background:#fff5f5;border:1px solid #ffd6d6;border-radius:4px;padding:6px;font:10px/1.55 'JetBrains Mono',monospace;white-space:pre-wrap;color:#8a1c1c">{{ (o.data.errors || []).join('\n') }}</pre>
+            </div>
+            <div v-if="(o.data.notes || []).length" style="margin-top:4px">
+              <div style="font-size:9.5px;color:#b26a00">缺漏</div>
+              <pre style="margin:2px 0 0;max-height:200px;overflow:auto;background:#fffaf0;border:1px solid #ffe0b2;border-radius:4px;padding:6px;font:10px/1.55 'JetBrains Mono',monospace;white-space:pre-wrap;color:#7a4a00">{{ (o.data.notes || []).join('\n') }}</pre>
+            </div>
+            <details v-if="(o.data.warns || []).length" style="margin-top:5px">
+              <summary style="font-size:9.5px;color:#888;cursor:pointer">提示 {{ (o.data.warns || []).length }} 条</summary>
+              <pre style="margin:3px 0 0;max-height:200px;overflow:auto;background:#fafafa;border:1px solid #f0f0f0;border-radius:4px;padding:6px;font:10px/1.5 'JetBrains Mono',monospace;white-space:pre-wrap;color:#444">{{ (o.data.warns || []).join('\n') }}</pre>
+            </details>
+          </div>
+
           <!-- 旧记录可能没存框坐标：这时说明一下，别让人以为图丢了 -->
           <div v-if="String(o.kind).startsWith('box-') && o.kind !== 'box-reorder' && manualBoxes(o).length === 0"
             style="margin-top:5px;font-size:9.5px;color:#b08900;line-height:1.5">

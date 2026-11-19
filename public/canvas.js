@@ -44,7 +44,8 @@ createApp({
       'box-add': 'add_box', 'box-del': 'delete', 'box-edit': 'edit',
       'box-clear': 'delete_sweep', 'box-erase': 'ink_eraser',
       'audio-vp': 'graphic_eq', 'audio-dlg': 'record_voice_over',
-      'ai-check': 'visibility' };
+      'ai-check': 'visibility',
+      'check-audio': 'fact_check', 'check-characters': 'badge' };
     const MODE_LABEL = {
       'detect-page': '整页找框', 'detect-region': '区域找框',
       'ocr-page': '整页识别', 'ocr-region': '区域识别', 'ocr-boxes': '框内文字',
@@ -1470,6 +1471,11 @@ function openToolDialog(kind) {
       if (histFilter.value === 'edit') return history.value.filter((o) => String(o.kind).startsWith('box-'));
       // 音频历史：声纹 + 对话音频都归到这一栏，和识别记录分开展示
       if (histFilter.value === 'audio') return history.value.filter((o) => String(o.kind).startsWith('audio-'));
+      // 「校验」栏同时收 AI 读图校验和两条静态检查（音频脚本 / 角色档案）
+      if (histFilter.value === 'ai-check') {
+        return history.value.filter((o) => String(o.kind) === 'ai-check'
+          || String(o.kind).startsWith('check-'));
+      }
       if (histFilter.value === 'region') {
         return history.value.filter((o) => o.data?.scope === 'region' || o.data?.scope === 'box');
       }

@@ -852,6 +852,43 @@ http.createServer(async (req, res) => {
     }
 
     // 分镜 md：右侧面板「分镜」tab 用。只读，按页返回原文，
+    // 静态审计（CLI check-audio / check-characters）：把检查结论留进历史，
+    // 让「改完有没有检查、检查结果是什么」在画布上可追溯。
+    m = p.match(/^\/api\/session\/([^/]+)\/audit$/);
+    if (m && req.method === 'POST') {
+      const d = await body(req);
+      const scope = String(d.scope || 'audit');
+      if (!['audio', 'characters'].includes(scope)) {
+        return send(res, 400, { error: 'scope 只能是 audio / characters' });
+      }
+      // 历史里的 scope 用 audit-audio / audit-characters，
+      // 不能复用 audio ——那会和「音频生成」记录撞名，前端会误渲染。
+      const auditScope = 'audit-' + scope;
+      const errors = Array.isArray(d.errors) ? d.errors : [];
+      const warns = Array.isArray(d.warns) ? d.warns : [];
+      const notes = Array.isArray(d.notes) ? d.notes : [];
+      const pass = errors.length === 0;
+      const op = appendOp(m[1], {
+        kind: scope === 'audio' ? 'check-audio' : 'check-characters',
+        by: d.by || 'cli', page: d.page || null,
+        ms: d.ms ?? null,
+        summary: scope === 'audio'
+          ? `音频脚本检查：${pass ? '通过' : errors.length + ' 个错误'} · ${d.dialogues ?? 0} 条对话 · 阈值 ${Math.round((d.threshold ?? 0.9) * 100)}%`
+          : `角色档案检查：${pass ? '通过' : errors.length + ' 个错误'} · ${d.characters ?? 0} 个角色`,
+        input: { image: null, box: null, scope },
+        output: { image: null, count: d.dialogues ?? d.characters ?? null },
+        data: {
+          scope: auditScope,
+          pass,
+          threshold: d.threshold ?? null,
+          files: d.files ?? null,
+          errors, warns, notes,
+          detail: d.detail || null,
+        },
+      });
+      return send(res, 200, { ok: true, opId: op.id, pass });
+    }
+
     // 渲染交给前端（public/vendor/marked.min.js），这里只负责取文件。
     m = p.match(/^\/api\/session\/([^/]+)\/storyboard$/);
     if (m && req.method === 'GET') {
