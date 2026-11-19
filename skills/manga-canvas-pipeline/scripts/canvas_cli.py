@@ -86,10 +86,11 @@ def get_page(base, session, page):
     return api(base, "GET", f"/api/session/{session}/page/{page}")
 
 
-def put_regions(base, session, page, regions, summary, box=None, op="box-edit"):
+def put_regions(base, session, page, regions, summary, box=None, op="box-edit", boxes=None):
     return api(base, "PUT", f"/api/session/{session}/page/{page}",
                json={"regions": regions, "by": "manga-canvas-cli",
-                     "op": op, "summary": summary, "force": True, "box": box})
+                     "op": op, "summary": summary, "force": True,
+                     "box": box, "boxes": boxes})
 
 
 def wait_jobs(base, pages, timeout=900):
@@ -161,13 +162,14 @@ def cmd_add(args):
     regions.append({"box": [args.box[0], args.box[1], args.box[2], args.box[3]],
                     "text": args.text, "translation": "", "lang": "zh",
                     "prob": 1.0, "angle": 0, "source": "manual"})
-    regions.sort(key=lambda r: (r["box"][1], -r["box"][0]))
     put_regions(args.base, args.session, args.page, regions,
                 f"补框：{args.text[:16]}", box=args.box, op="box-add")
     print(f"新增 1 框，现有 {len(regions)} 框")
+    print(f"  新框编号 = #{len(regions) - 1}（追加在末尾，已有框编号不变）")
 
 
 def cmd_rm(args):
+    """删除框。编号 = 该页 regions 数组下标；删掉一个，其后编号会前移一位。"""
     p = get_page(args.base, args.session, args.page)
     regions = p["regions"]
     idxs = args.index
@@ -183,8 +185,12 @@ def cmd_rm(args):
         regions.pop(i)
     summary = f"删框 {len(idxs)} 个：" + "、".join(
         (x.get('text') or '<空>')[:8] for x in dropped[:3])
-    put_regions(args.base, args.session, args.page, regions, summary, op="box-del")
+    # 把删掉的框坐标一起记下来：历史卡片用页面原图现场画红框，不需要另存图片
+    put_regions(args.base, args.session, args.page, regions, summary, op="box-del",
+                box=dropped[0].get("box") if len(dropped) == 1 else None,
+                boxes=[x.get("box") for x in dropped])
     print(f"已删 {sorted(idxs)}，剩 {len(regions)} 框")
+    print("  注意：被删编号之后的框编号各前移一位；要改文字用 fix，一次完成删+加")
     for i, r in enumerate(regions):
         print(f"  #{i} [{','.join(str(int(v)) for v in r['box'])}] "
               f"{(r.get('text') or '')[:24]!r}")
@@ -244,7 +250,6 @@ def cmd_fix(args):
         regions.append({"box": [x1, y1, x2, y2], "text": args.text or "",
                         "translation": "", "lang": "zh", "prob": 1.0,
                         "angle": 0, "source": "manual"})
-        regions.sort(key=lambda r: (r["box"][1], -r["box"][0]))
     put_regions(args.base, args.session, args.page, regions,
                 f"改框 rm={idxs} add={args.add}", op="box-edit")
     print(f"已改：删 {len(idxs)} 框，加 {1 if args.add else 0} 框，现 {len(regions)} 框")
