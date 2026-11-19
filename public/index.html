@@ -190,8 +190,9 @@
   .badge.ui { background: #eefaf3; color: #148c5a; }
   .kbd-hint { display: flex; gap: 10px; font-size: 11px; color: #999; }
   .kbd-hint b { color: #555; font-weight: 600; }
-  .sess { height: 24px; border: 1px solid #e0e0e0; border-radius: 5px; padding: 0 6px;
-    font: 600 12px Geist, "Microsoft YaHei", sans-serif; color: #222; background: #fff; cursor: pointer; }
+  /* 左上角「画布」下拉：换成 UIKit 的 kit-select（自带搜索、键盘导航），这里只固定宽度 */
+  .sess-kit { width: 168px; flex: 0 0 168px; min-width: 0; }
+  .sess-kit .kit-select-trigger { font-family: "JetBrains Mono", monospace; font-size: 11.5px; }
   .mini { width: 22px; height: 22px; border: 1px solid #e0e0e0; background: #fff; border-radius: 5px;
     display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
   .mini .material-symbols-outlined { font-size: 15px; color: #555; }
@@ -343,9 +344,9 @@
   <header class="top">
     <div class="brand">
       <span class="material-symbols-outlined">photo_library</span>
-      <select class="sess" :value="S.session" @change="switchSession($event.target.value)">
-        <option v-for="s in S.sessions" :key="s" :value="s">{{ s }}</option>
-      </select>
+      <kit-select class="sess-kit" :model-value="S.session" :options="sessionOptions"
+        searchable search-placeholder="搜索画布..." placeholder="选择画布"
+        dropdown-max-width="260px" @change="switchSession"></kit-select>
       <span style="font-weight:400;color:#9a9a9a;font-size:11px">{{ S.pages.length }} 页</span>
       <button class="mini" @click="showNew = !showNew" title="新建画布">
         <span class="material-symbols-outlined">add</span>

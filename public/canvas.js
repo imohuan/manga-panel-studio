@@ -15,6 +15,8 @@ createApp({
       mode: 'pan', selPage: -1, selBox: -1, selExtra: [],
       drag: null, hover: null,
     });
+    // 左上角画布下拉：kit-select 的 options 需要 {label, value}
+    const sessionOptions = computed(() => S.sessions.map((s) => ({ label: s, value: s })));
     // 正在识别的框：key = 页码:框坐标，值是任务 id。画布和区域列表都靠它显示加载状态
     const pending = reactive(new Map());
     // 正在处理的整页任务：key = page:页码（整页找框/整页识别/区域找框/区域识别）
@@ -1118,6 +1120,8 @@ function openToolDialog(kind) {
       if (!S.session && S.sessions.length) await switchSession(S.sessions[0]);
     }
     async function switchSession(name) {
+      // kit-select 点「清除」会给出空值，空值不切画布（否则会请求 /api/session/）
+      if (!name) return;
       S.session = name;
       // 把当前画布写回地址栏，刷新后还停在这一页
       const u = new URL(window.location.href);
@@ -1746,7 +1750,7 @@ function openToolDialog(kind) {
     return { cv, detailScroll, S, sseOn, cursor, sideTab, editText, busy, jobs, history, histFilter,
       selectedCount, thumbExtraStyles, removeSelectedBoxes,
       ICON, MODE_LABEL, isPending, pageIsBusy, pageBusyMode,
-      uploadRef, newName, showNew, curPage, curBox, fillRate, thumbBoxStyle, overlapGroup,
+      uploadRef, newName, showNew, sessionOptions, curPage, curBox, fillRate, thumbBoxStyle, overlapGroup,
       filteredHistory, jobStat, fmtTime,
       fitAll, setMode, applyText, removeBox, savePage, cycleBox, selectBox, queueBoxOcr, removeOp, clearHistory,
       stepBox, jumpToIndex,
