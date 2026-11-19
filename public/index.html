@@ -133,6 +133,12 @@
   .op-texts { margin-top: 8px; border-top: 1px dashed #eee; padding-top: 7px;
     display: flex; flex-direction: column; gap: 4px; }
   .op-text-row { display: flex; gap: 6px; align-items: flex-start; font-size: 11px; line-height: 1.55; }
+  /* 长文本按行读：限制每行宽度，字号跟面板一致，避免整块文字糊成一片 */
+  .op-texts { max-width: 100%; }
+  .op-text-row { max-width: 100%; }
+  .op-text, .op-texts, .op-text-row, .op-canvas-cap, .op-imgs figcaption {
+    font-family: Geist, "Microsoft YaHei", sans-serif; }
+  .op-text { font-size: 11px; line-height: 1.55; }
   .op-text-idx { flex: 0 0 auto; font: 600 9.5px "JetBrains Mono", monospace; color: #aaa;
     background: #f4f4f4; border-radius: 3px; padding: 1px 4px; margin-top: 1px; }
   .op-text { flex: 1; min-width: 0; color: #333; word-break: break-word; white-space: pre-wrap;
@@ -258,6 +264,10 @@
   .op-manual { margin: 6px 0 0; }
   .op-canvas { display: block; width: 100%; max-width: 320px; border: 1px solid #f0f0f0;
     border-radius: 4px; background: #fafafa; cursor: zoom-in; }
+  /* 展开区里的说明文字统一走面板的小字，别跟着正文放大 */
+  .op-canvas-cap, .op-manual figcaption, .op-imgs figcaption {
+    font: 400 9.5px/1.5 Geist, "Microsoft YaHei", sans-serif;
+    color: #999; text-align: center; margin-top: 2px; }
   /* 模型内部步骤：2 列小图，点开看大图 */
   .trace-block { margin-top: 8px; border-top: 1px dashed #eee; padding-top: 7px; }
   .trace-head { font-size: 10px; color: #999; margin-bottom: 5px; }
@@ -268,6 +278,8 @@
   .trace-grid figcaption { font-size: 9px; color: #999; margin-top: 2px; line-height: 1.4;
     overflow: hidden; text-overflow: ellipsis; display: -webkit-box;
     -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .op-restore { margin-top: 7px; }
+  .op-restore .mini2 { font-size: 10.5px; padding: 2px 7px; }
   .op-json { margin-top: 8px; border-top: 1px dashed #eee; padding-top: 6px; }
   .json-head { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: #888; }
   .json-head .sp { flex: 1; }

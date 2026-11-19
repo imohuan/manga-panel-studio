@@ -126,20 +126,62 @@ function appendOp(session, op) {
   return rec;
 }
 
-// 图片落盘：压缩 + 内容哈希去重
+// 判断图片真实格式（历史里的图曾经出现「PNG 内容配 .jpg 名字」的情况）
+const imageExt = (buf) => {
+  if (buf.length > 3 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return '.png';
+  if (buf.length > 2 && buf[0] === 0xff && buf[1] === 0xd8) return '.jpg';
+  if (buf.length > 11 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return '.webp';
+  return '.jpg';
+};
+
+// 图片落盘：压缩成真正的 JPEG + 内容哈希去重
+// 压缩失败时用 PIL 兜底（ffmpeg 的参数一旦写错会静默失败，别把原图当压缩图存进去）
 function saveImage(session, buf, tag = 'img') {
   const dir = IMAGES_DIR(session);
   fs.mkdirSync(dir, { recursive: true });
   const h = sha1(buf);
   const name = `${tag}-${h}.jpg`;
   const target = path.join(dir, name);
-  if (!fs.existsSync(target)) {
-    const tmp = path.join(dir, `_tmp-${h}.jpg`);
-    fs.writeFileSync(tmp, buf);
-    const args = ['-y', '-loglevel', 'error', '-i', tmp,
-      '-vf', 'scale=min(1400,iw):-2', '-q:v', '4', target];
-    try { execFileSync(FFMPEG, args); } catch { fs.copyFileSync(tmp, target); }
-    fs.rmSync(tmp, { force: true });
+  if (fs.existsSync(target)) {
+    // 同名文件可能是历史遗留的「PNG 内容配 .jpg 名字」，浏览器会显示成裂图。
+    // 只有真实 JPEG 才能直接复用，否则删掉重新压。
+    try {
+      const head = Buffer.alloc(3);
+      const fd = fs.openSync(target, 'r');
+      fs.readSync(fd, head, 0, 3, 0);
+      fs.closeSync(fd);
+      if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return name;
+    } catch {}
+    fs.rmSync(target, { force: true });
+  }
+
+  const tmp = path.join(dir, `_tmp-${h}.img`);
+  const out = path.join(dir, `_out-${h}.jpg`);
+  fs.writeFileSync(tmp, buf);
+  let done = false;
+  try {
+    execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-i', tmp,
+      '-vf', "scale='min(1400,iw)':-2", '-q:v', '4', out], { stdio: 'ignore' });
+    done = fs.existsSync(out) && fs.statSync(out).size > 0;
+  } catch { done = false; }
+  if (!done) {
+    // 兜底：用项目自带的 Python/PIL 压一次
+    try {
+      execFileSync(PY, [path.join(__dirname, 'compress_image.py'), tmp, out], { stdio: 'ignore' });
+      done = fs.existsSync(out) && fs.statSync(out).size > 0;
+    } catch { done = false; }
+  }
+  fs.rmSync(tmp, { force: true });
+  if (done) {
+    fs.renameSync(out, target);
+  } else {
+    // 实在压不了就原样存，但按真实格式命名，避免浏览器按错类型解码
+    fs.rmSync(out, { force: true });
+    const ext = imageExt(buf);
+    if (ext === '.jpg') { fs.writeFileSync(target, buf); return name; }
+    const alt = path.join(dir, `${tag}-${h}${ext}`);
+    fs.writeFileSync(alt, buf);
+    return path.basename(alt);
   }
   return name;
 }
@@ -152,13 +194,29 @@ function pruneImages(session, removed) {
     if (o.input?.image) used.add(o.input.image);
     if (o.output?.image) used.add(o.output.image);
     if (o.data?.modelInput) used.add(o.data.modelInput);
+    for (const t of o.data?.trace || []) if (t.image) used.add(t.image);
   }
-  const candidates = [removed?.input?.image, removed?.output?.image, removed?.data?.modelInput].filter(Boolean);
+  const candidates = [removed?.input?.image, removed?.output?.image, removed?.data?.modelInput,
+    ...(removed?.data?.trace || []).map((t) => t.image)].filter(Boolean);
   for (const name of candidates) {
     if (used.has(name)) continue;
     const f = path.join(IMAGES_DIR(session), path.basename(name));
     try { fs.rmSync(f, { force: true }); } catch {}
   }
+}
+
+// 中间图落盘：Python 每一步回传的 base64 直接存成图片，历史卡片里展示
+function saveTrace(session, trace, prefix = '') {
+  const out = [];
+  if (!trace || typeof trace !== 'object') return out;
+  for (const [key, v] of Object.entries(trace)) {
+    if (key === 'counts' || !v || !v.image) continue;
+    try {
+      const name = saveImage(session, Buffer.from(v.image, 'base64'), `tr-${key}`);
+      out.push({ key, label: prefix + (v.label || key), image: name });
+    } catch {}
+  }
+  return out;
 }
 
 // ---------- SSE ----------
@@ -405,6 +463,18 @@ async function pump() {
       outName = await renderBoxes(job, inputBuf, drawBoxes);
     } catch {}
 
+    // 中间图：整页/区域任务保存 Python 每一步的可视化；框内识别逐框保存
+    let trace = [];
+    if (job.mode === 'ocr-boxes') {
+      // 逐框识别时中间图会翻倍增长，只保留前几个框的步骤图，够看就够了
+      (data.items || []).slice(0, 8).forEach((it, i) => {
+        const b = it.box.map((v) => Math.round(Number(v))).join(',');
+        trace = trace.concat(saveTrace(job.session, it.one?.trace, `框${i + 1} ${b} · `));
+      });
+    } else {
+      trace = saveTrace(job.session, data.trace);
+    }
+
     const scope = isRegion
       ? `区域 ${job.box.map((v) => Math.round(v)).join(',')}`
       : '';
@@ -435,6 +505,7 @@ async function pump() {
         region: data.region || null,
         fallback: data.fallback ?? null,
         modelInput: modelInputName,
+        trace,
         boxes: job.mode === 'ocr-boxes' ? (data.items || []).map((it) => ({
           box: it.box,
           lines: it.one.regions?.[0]?.lines ?? null,
@@ -444,6 +515,8 @@ async function pump() {
           strategy: it.one.regions?.[0]?.strategy ?? null,
         })) : null,
         regions: data.regions || [],
+        // 当时的完整框数据：历史卡片可以用它一键还原到这一步（不用再存一份原图）。
+        snapshot: meta.regions,
       },
     });
 
@@ -648,6 +721,32 @@ http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, op });
     }
 
+    // 历史还原：把某条记录当时的框数据写回这页
+    m = p.match(/^\/api\/session\/([^/]+)\/history\/([^/]+)\/restore$/);
+    if (m && req.method === 'POST') {
+      const db = readOps(m[1]);
+      const op = db.ops.find((o) => o.id === m[2]);
+      if (!op) return send(res, 404, { error: '记录不存在' });
+      const snap = op.data?.snapshot;
+      const page = op.page;
+      if (!Array.isArray(snap) || !page) return send(res, 400, { error: '这条记录没有可还原的框数据' });
+      const metaFile = path.join(sessionDir(m[1]), `${page}.json`);
+      const meta = readJson(metaFile, { page, regions: [] });
+      meta.regions = snap;
+      writeJson(metaFile, meta);
+      // 还原记录本身也带快照（可以来回跳），但标题要剥掉重复的「还原到：」
+      const base = String(op.summary || op.kind).replace(/^还原到：/, '').replace(/（\d+ 框）$/, '');
+      const rec = appendOp(m[1], {
+        kind: 'box-restore', by: 'ui', page,
+        summary: `还原到：${base}（${snap.length} 框）`,
+        input: { image: null, box: null },
+        output: { image: null, count: snap.length },
+        data: { count: snap.length, boxes: snap.map((r) => r.box), snapshot: snap, restoredFrom: op.id },
+      });
+      broadcast('pages', { session: m[1] });
+      return send(res, 200, { ok: true, count: snap.length, opId: rec.id });
+    }
+
     if (p === '/api/jobs') {
       const list = [...jobs.values()];
       return send(res, 200, {
@@ -680,10 +779,17 @@ http.createServer(async (req, res) => {
     if (m && req.method === 'GET') {
       const db = readOps(m[1]);
       const base = `/s/${encodeURIComponent(m[1])}/hist-img`;
+      const pageInfo = new Map(listPages(m[1]).map((pg) => [pg.page, pg]));
       const ops = db.ops.slice().reverse().map((o) => ({
         ...o,
         inputUrl: o.input?.image ? `${base}/${o.input.image}` : null,
         outputUrl: o.output?.image ? `${base}/${o.output.image}` : null,
+        traceUrls: (o.data?.trace || []).map((t) => ({
+          key: t.key, label: t.label, url: t.image ? `${base}/${t.image}` : null,
+        })),
+        // 手动改框不存图片：前端用这张页图 + 框坐标现场画
+        pageUrl: pageInfo.has(o.page) ? `/s/${encodeURIComponent(m[1])}/img/${encodeURIComponent(pageInfo.get(o.page).file)}` : null,
+        pageSize: pageInfo.has(o.page) ? [pageInfo.get(o.page).width, pageInfo.get(o.page).height] : null,
       }));
       return send(res, 200, { ops, total: db.ops.length });
     }
@@ -730,7 +836,14 @@ http.createServer(async (req, res) => {
     if (m) {
       const f = path.join(IMAGES_DIR(m[1]), path.basename(m[2]));
       if (!fs.existsSync(f)) return send(res, 404, { error: 'no image' });
-      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=600' });
+      // 按真实格式返回：历史里会有 PNG / WEBP，全当成 JPEG 发给浏览器会显示成裂图
+      const head = Buffer.alloc(12);
+      const fd = fs.openSync(f, 'r');
+      fs.readSync(fd, head, 0, 12, 0);
+      fs.closeSync(fd);
+      const ext = imageExt(head);
+      const type = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'max-age=600' });
       return fs.createReadStream(f).pipe(res);
     }
 

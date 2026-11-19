@@ -39,7 +39,21 @@ import sys, os
 sys.path.insert(0, MT)
 os.chdir(MT)
 
-from mask_column_ocr import TextBlock, extract_columns
+# 注意：MT 目录里也有一份同名的 mask_column_ocr.py（旧拷贝）。
+# 如果直接 `from mask_column_ocr import ...`，加载的会是那一份，
+# 本项目 server/mask_column_ocr.py 的修改就永远不生效。
+# 所以这里按文件路径明确加载本目录的这一份。
+import importlib.util
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_spec = importlib.util.spec_from_file_location(
+    "mask_column_ocr", os.path.join(_HERE, "mask_column_ocr.py"))
+_mod = importlib.util.module_from_spec(_spec)
+sys.modules["mask_column_ocr"] = _mod
+_spec.loader.exec_module(_mod)
+
+TextBlock = _mod.TextBlock
+extract_columns = _mod.extract_columns
 
 
 def read_image(b64: str) -> Image.Image:
@@ -76,7 +90,8 @@ def block_to_region(b: TextBlock) -> dict:
 
 
 def regions_response(image: Image.Image, blocks: list[TextBlock], t0: float,
-                     input_img: Image.Image | None = None) -> dict:
+                     input_img: Image.Image | None = None,
+                     trace: dict | None = None) -> dict:
     out = {
         "width": image.width, "height": image.height,
         "ms": int((time.time() - t0) * 1000),
@@ -86,6 +101,36 @@ def regions_response(image: Image.Image, blocks: list[TextBlock], t0: float,
     }
     if input_img is not None:
         out["input"] = to_jpeg_b64(input_img)
+    if trace:
+        out["trace"] = trace
+    return out
+
+
+def trace_to_b64(trace: dict | None) -> dict:
+    """中间图（numpy BGR）→ base64 JPEG，并带上每一步的说明。"""
+    if not trace:
+        return {}
+    steps = [
+        ("mask", "检测 mask：模型认为有文字的地方（红色）"),
+        ("blocks", "mask 分块：每个蓝色框是一个文字块"),
+        ("columns", "切列/切行：绿色框是真正送去 OCR 的文字条"),
+        ("strips", "送进 OCR 的文字条拼图（左上角是顺序号）"),
+    ]
+    out = {}
+    for key, label in steps:
+        img = trace.get(key)
+        if img is None:
+            continue
+        bgr = np.ascontiguousarray(img)
+        ok, enc = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        if not ok:
+            continue
+        out[key] = {
+            "label": label,
+            "image": base64.b64encode(enc.tobytes()).decode("ascii"),
+        }
+    if trace.get("counts"):
+        out["counts"] = trace["counts"]
     return out
 
 
@@ -100,6 +145,14 @@ class Engine:
         async with self.lock:
             return await extract_columns(pil_to_np(img),
                                          det_device=self.device, ocr_device=self.device)
+
+    async def extract_traced(self, img: Image.Image) -> tuple[list[TextBlock], dict]:
+        """同一套算法，额外把每一步的中间图带回来。"""
+        async with self.lock:
+            trace: dict = {}
+            blocks = await extract_columns(pil_to_np(img), det_device=self.device,
+                                           ocr_device=self.device, trace_out=trace)
+            return blocks, trace
 
 
 class ImgReq(BaseModel):
@@ -127,8 +180,8 @@ def build_app(engine: Engine) -> FastAPI:
     async def detect(req: ImgReq):
         t0 = time.time()
         img = read_image(req.image)
-        blocks = await engine.extract(img)
-        out = regions_response(img, blocks, t0)
+        blocks, trace = await engine.extract_traced(img)
+        out = regions_response(img, blocks, t0, trace=trace_to_b64(trace))
         for r in out["regions"]:
             r["text"] = ""      # 找框模式不带文字
         return out
@@ -136,7 +189,8 @@ def build_app(engine: Engine) -> FastAPI:
     @app.post("/ocr")
     async def ocr(req: ImgReq):
         img = read_image(req.image)
-        return regions_response(img, await engine.extract(img), time.time())
+        blocks, trace = await engine.extract_traced(img)
+        return regions_response(img, blocks, time.time(), trace=trace_to_b64(trace))
 
     @app.post("/detect/region")
     async def detect_region(req: RegionReq):
@@ -157,13 +211,14 @@ def build_app(engine: Engine) -> FastAPI:
         if ex - ox < 8 or ey - oy < 8:
             raise HTTPException(400, "区域太小")
         crop = img.crop((ox, oy, ex, ey))
-        blocks = await engine.extract(crop)
+        blocks, trace = await engine.extract_traced(crop)
         # 裁剪图坐标 → 原图坐标
         for b in blocks:
             b.box = [b.box[0] + ox, b.box[1] + oy, b.box[2] + ox, b.box[3] + oy]
             for c in b.columns:
                 c.box = [c.box[0] + ox, c.box[1] + oy, c.box[2] + ox, c.box[3] + oy]
-        out = regions_response(img, blocks, t0, input_img=crop)
+        out = regions_response(img, blocks, t0, input_img=crop,
+                               trace=trace_to_b64(trace))
         out["region"] = {"box": [float(v) for v in req.box], "origin": [ox, oy]}
         if not need_text:
             for r in out["regions"]:
@@ -181,7 +236,7 @@ def build_app(engine: Engine) -> FastAPI:
         x1, y1 = max(0, int(user[0]) - 10), max(0, int(user[1]) - 10)
         x2, y2 = min(img.width, int(user[2]) + 10), min(img.height, int(user[3]) + 10)
         crop = img.crop((x1, y1, x2, y2))
-        blocks = await engine.extract(crop)
+        blocks, trace = await engine.extract_traced(crop)
         text = "".join(b.text for b in blocks)
         prob = min((c.prob for b in blocks for c in b.columns), default=0.0)
         return {
@@ -193,11 +248,13 @@ def build_app(engine: Engine) -> FastAPI:
                 "text": text,
                 "prob": round(prob, 3),
                 "lines": [c.text for b in blocks for c in b.columns if c.text],
+                "linesInCrop": [list(b.box) for b in blocks],
                 "blocks": [block_to_region(b) for b in blocks],
             }],
             "box": user,
             "algorithm": "mask-column",
             "input": to_jpeg_b64(crop),
+            "trace": trace_to_b64(trace),
         }
 
     @app.post("/ocr/batch")
