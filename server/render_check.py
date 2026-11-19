@@ -30,13 +30,13 @@ from PIL import Image, ImageDraw, ImageFont
 
 def _sessions_root():
     """sessions 目录固定在数据根目录下的 sessions/。
-    数据根：环境变量 STUDIO_DATA_DIR > settings.json 的 canvas.dataDir
-    > 默认 %LOCALAPPDATA%/manga-panel-studio。与 canvas.mjs 保持同一来源。"""
+    数据根：环境变量 STUDIO_DATA_DIR > ~/.manga-panel-studio/settings.json 的
+    canvas.dataDir > 默认 ~/.manga-panel-studio。与 canvas.mjs 保持同一来源。"""
     env = os.environ.get("STUDIO_DATA_DIR")
     if env:
         return Path(env)
-    sf = (Path(os.environ.get("STUDIO_DATA_DIR")) if os.environ.get("STUDIO_DATA_DIR")
-          else Path.home() / ".manga-panel-studio") / "settings.json"
+    home = Path.home() / ".manga-panel-studio"
+    sf = home / "settings.json"
     if sf.exists():
         try:
             canvas = json.loads(sf.read_text(encoding="utf-8")).get("canvas") or {}
@@ -44,13 +44,20 @@ def _sessions_root():
                 return Path(canvas["dataDir"]) / "sessions"
         except Exception:
             pass
-    local = os.environ.get("LOCALAPPDATA") or str(Path.home())
-    return Path(local) / "manga-panel-studio" / "sessions"
+    return home / "sessions"
 
 params = json.loads(sys.argv[1])
 session = params['session']; page = params['page']
 root = _sessions_root() / session
-img = Image.open(root / (page + '.jpg')).convert('RGB')
+# 页面图扩展名探测：canvas.mjs 的 listPages 支持 jpg/png/webp，这里保持一致。
+img = None
+for ext in ('.jpg', '.jpeg', '.png', '.webp'):
+    cand = root / (page + ext)
+    if cand.exists():
+        img = Image.open(cand).convert('RGB')
+        break
+if img is None:
+    raise SystemExit('找不到页面图: ' + str(root / page) + '.(jpg|jpeg|png|webp)')
 W0, H0 = img.size
 
 def istr(k, d=0):

@@ -241,6 +241,13 @@ def cmd_check(args):
     check_services()
 
 
+def normalize_page(p):
+    """页码归一化成 5 位（NNNNN）：'1' -> '00001'，'0001' -> '00001'。
+    服务端页码 = 文件名去扩展名，原样返回；这里只处理手写页码位数不齐的情况。"""
+    s = str(p).strip()
+    return s.zfill(5) if s.isdigit() else s
+
+
 def cmd_list(args):
     d = api(args.base, "GET", f"/api/session/{args.session}")
     for p in d["pages"]:
@@ -249,8 +256,9 @@ def cmd_list(args):
 
 
 def cmd_show(args):
-    p = get_page(args.base, args.session, args.page)
-    print(f"{args.page}  {p['width']}x{p['height']}  {len(p['regions'])} 框")
+    page = normalize_page(args.page)
+    p = get_page(args.base, args.session, page)
+    print(f"{page}  {p['width']}x{p['height']}  {len(p['regions'])} 框")
     for i, r in enumerate(p["regions"]):
         box = ",".join(str(int(v)) for v in r["box"])
         print(f"  #{i:<2} [{box}] {r.get('text','')!r}  ({r.get('source','')})")
@@ -262,9 +270,21 @@ def cmd_init(args):
     missing = [str(p) for p in imgs if not p.exists()]
     if missing:
         raise SystemExit("找不到图片: " + ", ".join(missing))
-    files = [{"name": p.name,
-              "data": "data:image/jpeg;base64," + base64.b64encode(p.read_bytes()).decode()}
-             for p in imgs]
+    # 页码归一化：一律重命名为 5 位（NNNNN），按文件名排序后顺序编号。
+    # 页码格式不统一会让校验/历史/脚本里出现 0001 和 00003 并存的混乱。
+    renamed = []
+    for i, p in enumerate(imgs, 1):
+        ext = p.suffix.lower() if p.suffix.lower() in ('.jpg', '.jpeg', '.png', '.webp') else '.jpg'
+        target = Path('%05d%s' % (i, ext))
+        if target in renamed:
+            raise SystemExit("重名冲突: " + str(target))
+        renamed.append(target)
+    files = []
+    for p, t in zip(imgs, renamed):
+        if p.name != t.name:
+            print(f"  页码归一化: {p.name} -> {t.name}")
+        files.append({"name": t.name,
+                      "data": "data:image/jpeg;base64," + base64.b64encode(p.read_bytes()).decode()})
     print(api(args.base, "POST", f"/api/session/{args.session}/upload", json={"files": files}))
     print(f"sessions/{args.session} 已建立（只含 {len(files)} 张图）")
 
@@ -273,7 +293,8 @@ def cmd_ocr(args):
     d = api(args.base, "GET", f"/api/session/{args.session}")
     pages = [p["page"] for p in d["pages"]]
     if args.pages:
-        pages = [p for p in pages if p in args.pages]
+        wanted = [normalize_page(x) for x in args.pages]
+        pages = [p for p in pages if p in wanted]
     if not pages:
         raise SystemExit("没有要识别的页")
     for pg in pages:
@@ -290,12 +311,13 @@ def cmd_ocr(args):
 
 
 def cmd_add(args):
-    p = get_page(args.base, args.session, args.page)
+    page = normalize_page(args.page)
+    p = get_page(args.base, args.session, page)
     regions = p["regions"]
     regions.append({"box": [args.box[0], args.box[1], args.box[2], args.box[3]],
                     "text": args.text, "translation": "", "lang": "zh",
                     "prob": 1.0, "angle": 0, "source": "manual"})
-    put_regions(args.base, args.session, args.page, regions,
+    put_regions(args.base, args.session, page, regions,
                 f"补框：{args.text[:16]}", box=args.box, op="box-add")
     print(f"新增 1 框，现有 {len(regions)} 框")
     print(f"  新框编号 = #{len(regions) - 1}（追加在末尾，已有框编号不变）")
@@ -303,7 +325,8 @@ def cmd_add(args):
 
 def cmd_rm(args):
     """删除框。编号 = 该页 regions 数组下标；删掉一个，其后编号会前移一位。"""
-    p = get_page(args.base, args.session, args.page)
+    page = normalize_page(args.page)
+    p = get_page(args.base, args.session, page)
     regions = p["regions"]
     idxs = args.index
     if len(idxs) == 1 and idxs[0] < 0:
@@ -319,7 +342,7 @@ def cmd_rm(args):
     summary = f"删框 {len(idxs)} 个：" + "、".join(
         (x.get('text') or '<空>')[:8] for x in dropped[:3])
     # 把删掉的框坐标一起记下来：历史卡片用页面原图现场画红框，不需要另存图片
-    put_regions(args.base, args.session, args.page, regions, summary, op="box-del",
+    put_regions(args.base, args.session, page, regions, summary, op="box-del",
                 box=dropped[0].get("box") if len(dropped) == 1 else None,
                 boxes=[x.get("box") for x in dropped])
     print(f"已删 {sorted(idxs)}，剩 {len(regions)} 框")
@@ -337,6 +360,7 @@ def cmd_scrub(args):
         pages = [x["page"] for x in d["pages"]]
     else:
         pages = [x.strip() for x in raw.split(",") if x.strip()]
+    pages = [normalize_page(x) for x in pages]
     for page in pages:
         scrub_page(args, page)
 
@@ -369,7 +393,8 @@ def scrub_page(args, page):
 def cmd_fix(args):
     """原子改框：一次请求内 删旧框 + 加新框，避免删后索引错位。
     --rm N[,M...]  --add x1,y1,x2,y2  --text "文字" """
-    p = get_page(args.base, args.session, args.page)
+    page = normalize_page(args.page)
+    p = get_page(args.base, args.session, page)
     regions = p["regions"]
     idxs = [int(x) for x in str(args.rm).split(",") if x.strip()] if args.rm else []
     bad = [i for i in idxs if not 0 <= i < len(regions)]
@@ -383,7 +408,7 @@ def cmd_fix(args):
         regions.append({"box": [x1, y1, x2, y2], "text": args.text or "",
                         "translation": "", "lang": "zh", "prob": 1.0,
                         "angle": 0, "source": "manual"})
-    put_regions(args.base, args.session, args.page, regions,
+    put_regions(args.base, args.session, page, regions,
                 f"改框 rm={idxs} add={args.add}", op="box-edit")
     print(f"已改：删 {len(idxs)} 框，加 {1 if args.add else 0} 框，现 {len(regions)} 框")
     for i, r in enumerate(regions):
@@ -449,7 +474,7 @@ def cmd_view(args):
         d = api(args.base, "GET", f"/api/session/{args.session}")
         pages = [p["page"] for p in d["pages"]]
     else:
-        pages = [x.strip() for x in raw.split(",") if x.strip()]
+        pages = [normalize_page(x) for x in raw.split(",") if x.strip()]
     if not pages:
         raise SystemExit("没有要校验的页")
 
@@ -724,6 +749,7 @@ def cmd_reorder(args):
     from difflib import SequenceMatcher
 
     sdir = SESSIONS_ROOT / args.session
+    page = normalize_page(args.page)
     md_path = sdir / (args.page + ".md")
     if not md_path.exists():
         raise SystemExit(str(md_path) + " 不存在；先写 md 分镜")
@@ -732,7 +758,7 @@ def cmd_reorder(args):
     if not lines:
         raise SystemExit("md 的 ## 分镜 段里没有找到以 > 开头的台词行")
 
-    p = get_page(args.base, args.session, args.page)
+    p = get_page(args.base, args.session, page)
     regions = p["regions"]
     pool = [(i, normalize_text(r.get("text"))) for i, r in enumerate(regions)]
     used, order = set(), []
@@ -769,14 +795,14 @@ def cmd_reorder(args):
 
     new_regions = [regions[i] for i in order]
     if args.dry_run:
-        print("%s: 预览（未写入）" % args.page)
+        print("%s: 预览（未写入）" % page)
         for new, old in enumerate(order):
             print("  #%d -> #%d  %r" % (old, new, (regions[old].get("text") or "")[:26]))
         return
 
-    put_regions(args.base, args.session, args.page, new_regions,
+    put_regions(args.base, args.session, page, new_regions,
                 "按 md 台词顺序重排 %d 框" % len(new_regions), op="box-reorder")
-    print("%s: 已按 md 台词顺序重排 %d 框" % (args.page, len(new_regions)))
+    print("%s: 已按 md 台词顺序重排 %d 框" % (page, len(new_regions)))
     for new, old in enumerate(order):
         print("  #%d（原 #%d）%r" % (new, old, (regions[old].get("text") or "")[:26]))
 

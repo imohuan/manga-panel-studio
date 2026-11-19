@@ -80,6 +80,10 @@ OCR 服务地址。
 ### 节奏
 
 - 每页最多 **1 次 view 校验 + 1 次复验**；三页并行约 15 秒。
+- **FAIL 的闭环**：view 报 FAIL 后，按它给的 [CMD: ...] 逐条执行修框，
+  然后对该页复验一次；复验 PASS 才算这页完成，复验仍 FAIL 且剩余问题
+  属于「水印/页码/签名等确认非正文」的，可以不再修，但必须在最终回复里
+  说明剩余项和跳过理由。**不允许 FAIL 未处理就直接写 md**。
 - 全程不逐框放大、不手工截图对比、不核对错别字（除非意思读反）。
 - 用 CLI 一条命令完成一件事，不要多条命令拼同一个动作。
 - 收尾自检：框校验超过 2 分钟，就是走弯路了。
@@ -180,6 +184,8 @@ Windows 控制台先执行 $env:PYTHONIOENCODING='utf-8'。
     python canvas_cli.py list <会话>                    # 所有页与框数
     python canvas_cli.py show <会话> <页>               # 看框：#编号 坐标 文字 来源
     python canvas_cli.py init <会话> <图片...>          # 新建会话（文件夹只放图片）
+                                                        # 页码自动归一化成 5 位 NNNNN
+                                                        # （按文件名排序顺序编号）
     python canvas_cli.py ocr <会话> [--pages 00003]     # 整页识别（走画布任务队列）
     python canvas_cli.py add <会话> <页> x1 y1 x2 y2 "文字"   # 新增框
     python canvas_cli.py rm <会话> <页> <编号...>       # 删除框，可一次给多个编号
