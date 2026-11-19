@@ -77,24 +77,24 @@
     <!-- ========== 历史 ========== -->
     <div v-else-if="sideTab === 'history'">
       <!-- 筛选条单独占一行，清空按钮放到第二行右侧，避免按钮被挤成竖排或截断 -->
-      <div class="hist-bar" style="flex-wrap:wrap;row-gap:4px">
-        <!-- 筛选按钮变多后不再挤成竖排：按钮文字不折行，放不下就横向滑动 -->
+      <!-- 筛选条吸顶：列表往下滚时按钮不会被面板顶栏切掉一半 -->
+      <div class="hist-bar" style="flex-wrap:wrap;row-gap:4px;position:sticky;top:0;z-index:2;
+        background:#fff;padding:2px 0 4px;margin-top:-2px">
+        <!-- 筛选按钮变多、面板又窄：排成两行四列，保证每个按钮都是完整文字 -->
         <div class="modes"
-          style="height:22px;flex:1 1 100%;min-width:0">
-          <button style="height:22px;flex:0 0 auto;white-space:nowrap" :class="{on: histFilter === 'all'}" @click="histFilter = 'all'">全部</button>
-          <button style="height:22px;flex:0 0 auto;white-space:nowrap" :class="{on: histFilter === 'ocr'}" @click="histFilter = 'ocr'">识别</button>
-          <button style="height:22px;flex:0 0 auto;white-space:nowrap" :class="{on: histFilter === 'detect'}" @click="histFilter = 'detect'">检测</button>
-          <button style="height:22px;flex:0 0 auto;white-space:nowrap" :class="{on: histFilter === 'region'}" @click="histFilter = 'region'">区域</button>
-          <button style="height:22px;flex:0 0 auto;white-space:nowrap" :class="{on: histFilter === 'audio'}" @click="histFilter = 'audio'">音频</button>
-          <button style="height:22px;flex:0 0 auto;white-space:nowrap" :class="{on: histFilter === 'ai-check'}" @click="histFilter = 'ai-check'" title="AI 读图校验记录">校验</button>
-          <button style="height:22px;flex:0 0 auto;white-space:nowrap" :class="{on: histFilter === 'edit'}" @click="histFilter = 'edit'">编辑</button>
+          style="height:auto;flex:1 1 100%;min-width:0;display:grid;
+            grid-template-columns:repeat(4,minmax(0,1fr));border-radius:6px;overflow:hidden">
+          <button style="height:22px;min-width:0;white-space:nowrap;padding:0 2px" :class="{on: histFilter === 'all'}" @click="histFilter = 'all'">全部</button>
+          <button style="height:22px;min-width:0;white-space:nowrap;padding:0 2px" :class="{on: histFilter === 'ocr'}" @click="histFilter = 'ocr'">识别</button>
+          <button style="height:22px;min-width:0;white-space:nowrap;padding:0 2px" :class="{on: histFilter === 'detect'}" @click="histFilter = 'detect'">检测</button>
+          <button style="height:22px;min-width:0;white-space:nowrap;padding:0 2px" :class="{on: histFilter === 'region'}" @click="histFilter = 'region'">区域</button>
+          <button style="height:22px;min-width:0;white-space:nowrap;padding:0 2px" :class="{on: histFilter === 'audio'}" @click="histFilter = 'audio'">音频</button>
+          <button style="height:22px;min-width:0;white-space:nowrap;padding:0 2px" :class="{on: histFilter === 'ai-check'}" @click="histFilter = 'ai-check'" title="AI 读图校验记录">校验</button>
+          <button style="height:22px;min-width:0;white-space:nowrap;padding:0 2px" :class="{on: histFilter === 'edit'}" @click="histFilter = 'edit'">编辑</button>
+          <!-- 第 8 格给「清空」，正好填满两行 -->
+          <button style="height:22px;min-width:0;white-space:nowrap;padding:0 2px;color:#c0392b"
+            :disabled="!history.length" title="清空全部历史" @click="clearHistory">清空</button>
         </div>
-        <span style="flex:1"></span>
-        <button class="mini2 danger" :disabled="!history.length" title="清空全部历史"
-          @click="clearHistory">
-          <span class="material-symbols-outlined" style="font-size:12px;vertical-align:-2px">delete_sweep</span>
-          清空
-        </button>
       </div>
       <kit-empty v-if="!filteredHistory.length" icon="history" title="还没有记录" desc="每次识别或手动改框都会留一条"></kit-empty>
 
@@ -107,15 +107,22 @@
           <b>{{ o.page || '—' }}</b>
           <span class="op-sum">{{ o.summary }}</span>
           <span class="op-time">{{ fmtTime(o.ts) }}</span>
-          <button v-if="o.data" class="mini2 json-chip" title="全屏查看 JSON"
-            @click.prevent.stop="previewJson(o)">
-            JSON {{ (o.data.regions || []).length }}
-          </button>
           <button class="op-del" title="删除这条" @click.prevent.stop="removeOp(o.id)">
             <span class="material-symbols-outlined">delete</span>
           </button>
         </summary>
         <div class="op-body">
+          <!-- 收起时标题只显示几个字，展开后把完整描述放在最上面，先看得清再做别的 -->
+          <div style="display:flex;gap:6px;align-items:flex-start;margin:2px 0 7px">
+            <div class="op-desc"
+              style="flex:1;min-width:0;font:400 11px/1.55 Geist,'Microsoft YaHei',sans-serif;color:#333;
+                white-space:pre-wrap;word-break:break-word;
+                padding:5px 7px;background:#fafafa;border-radius:4px;">{{ o.summary }}</div>
+            <button v-if="o.data" class="mini2 json-chip" title="全屏查看 JSON"
+              style="flex:0 0 auto" @click.prevent.stop="previewJson(o)">
+              JSON {{ (o.data.regions || []).length }}
+            </button>
+          </div>
           <div class="op-imgs">
             <figure v-if="o.inputUrl">
               <img :src="o.inputUrl" loading="lazy" @click="previewImage(o.inputUrl, '输入图')" />
@@ -160,6 +167,11 @@
             </details>
           </div>
           <!-- 手动改框不存图：用页面原图 + 当时的框坐标现场画 -->
+          <!-- 旧记录可能没存框坐标：这时说明一下，别让人以为图丢了 -->
+          <div v-if="String(o.kind).startsWith('box-') && o.kind !== 'box-reorder' && manualBoxes(o).length === 0"
+            style="margin-top:5px;font-size:9.5px;color:#b08900;line-height:1.5">
+            这条记录没有保存框坐标，所以下面只显示当时的页面图。
+          </div>
           <figure v-if="!o.outputUrl && o.pageUrl && o.kind !== 'ai-check' && o.data?.scope !== 'audio'" class="op-manual">
             <canvas ref="manualCanvas" :data-opid="o.id" class="op-canvas"></canvas>
             <figcaption class="op-canvas-cap">
@@ -167,6 +179,8 @@
               <template v-else-if="o.kind === 'box-del' || o.kind === 'box-erase'">删掉的框：红框</template>
               <template v-else-if="o.kind === 'box-clear'">清空前的框：红框</template>
               <template v-else-if="o.kind === 'box-restore'">还原后的框：全部画出</template>
+              <template v-else-if="o.kind === 'box-reorder'">重排没挪动框位置，新顺序看 JSON</template>
+              <template v-else-if="!manualBoxes(o).length">当时没有记录框位置</template>
               <template v-else>改动位置</template>
               <span v-if="o.data?.count != null"> · 剩 {{ o.data.count }} 个</span>
             </figcaption>

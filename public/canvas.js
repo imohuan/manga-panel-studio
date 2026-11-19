@@ -1402,6 +1402,26 @@ function openToolDialog(kind) {
     }
 
     // 手动改框的历史不存图片：用页面原图 + 当时的框坐标现场画出来
+    // 这条记录要画的框：删掉的、补上的、橡皮擦的都在这里
+    function manualBoxes(op) {
+      const boxes = [];
+      if (op?.data?.box) boxes.push(op.data.box);
+      for (const b of op?.data?.boxes || []) boxes.push(b);
+      for (const pg of op?.data?.pages || []) {
+        if (pg.page !== op.page && op.page) continue;
+        for (const b of pg.boxes || []) boxes.push(b);
+      }
+      const seen = new Set();
+      const out = [];
+      for (const b of boxes) {
+        if (!Array.isArray(b) || b.length < 4) continue;
+        const key = b.map((v) => Math.round(Number(v))).join(',');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(b);
+      }
+      return out;
+    }
     function drawManualCards() {
       const list = document.querySelectorAll('canvas.op-canvas[data-opid]');
       for (const cvEl of list) {
@@ -1424,22 +1444,11 @@ function openToolDialog(kind) {
           const ctx = cvEl.getContext('2d');
           ctx.drawImage(img, 0, 0, cvEl.width, cvEl.height);
           // 删掉的框画红、补上的框画绿；橡皮擦可能一次删多个
-          const boxes = [];
           const add = op.kind === 'box-add';
           const color = add ? '#148c5a' : '#c0392b';
-          if (op.data?.box) boxes.push(op.data.box);
-          for (const b of op.data?.boxes || []) boxes.push(b);
-          for (const pg of op.data?.pages || []) {
-            if (pg.page !== op.page && op.page) continue;
-            for (const b of pg.boxes || []) boxes.push(b);
-          }
+          const boxes = manualBoxes(op);
           const lw = Math.max(1.5, cvEl.width / 220);
-          const seen = new Set();
           for (const b of boxes) {
-            if (!Array.isArray(b) || b.length < 4) continue;
-            const key = b.map((v) => Math.round(Number(v))).join(',');
-            if (seen.has(key)) continue;
-            seen.add(key);
             const x = b[0] * k, y = b[1] * k;
             const w = Math.max(1, (b[2] - b[0]) * k), h = Math.max(1, (b[3] - b[1]) * k);
             ctx.fillStyle = add ? 'rgba(20,140,90,.16)' : 'rgba(192,57,43,.16)';
@@ -1770,6 +1779,6 @@ function openToolDialog(kind) {
       openOps, preview, previewOpen, previewTitle, previewImage, previewJson, onToggle, jumpToHistory,
       restoring, restoreOp,
       toolDialog, openToolDialog,
-      opTexts };
+      opTexts, manualBoxes };
   },
 }).component('lightbox', window.Lightbox).use(window.UIKit).mount('#app');
