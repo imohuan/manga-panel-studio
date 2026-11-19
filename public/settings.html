@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>设置 — comic-canvas</title>
+  <title>设置 — manga-panel-studio</title>
   <link rel="stylesheet" href="/vendor/fonts.css">
   <link rel="stylesheet" href="/vendor/kit.css">
   <style>[v-cloak]{display:none}</style>
@@ -14,7 +14,7 @@
       <div class="flex items-center gap-2">
         <span class="material-symbols-outlined text-primary">settings</span>
         <h1 class="text-sm font-semibold text-primary">设置</h1>
-        <span class="text-xs text-on-surface-variant">comic-canvas 独立配置服务</span>
+        <span class="text-xs text-on-surface-variant">manga-panel-studio 独立配置服务</span>
       </div>
       <div class="flex gap-2">
         <kit-button variant="outlined" icon="refresh" @click="load">重新加载</kit-button>
@@ -80,19 +80,36 @@
           </div>
         </kit-card>
 
-        <kit-card title="漫画翻译 OCR 服务" icon="translate">
+        <kit-card title="路径与端口" icon="tune">
           <div class="space-y-3">
-            <kit-field label="服务地址" icon="lan" hint="OCR 服务探活地址（默认 http://127.0.0.1:5009）">
+            <kit-field label="manga-image-translator 目录" icon="folder"
+              hint="OCR 依赖的项目根。留空 = 用环境变量 MT_ROOT；都没有时识别服务无法启动">
+              <kit-input v-model="s.translator.projectRoot" mono placeholder="D:/manga-image-translator"></kit-input>
+            </kit-field>
+            <kit-field label="OCR 服务地址" icon="lan"
+              hint="识别服务探活地址（默认 http://127.0.0.1:5009）">
               <kit-input v-model="s.translator.baseUrl" mono placeholder="http://127.0.0.1:5009"></kit-input>
             </kit-field>
-            <kit-field label="项目根目录" icon="folder">
-              <kit-input v-model="s.translator.projectRoot" mono placeholder="I:/manga-image-translator"></kit-input>
+            <kit-field label="会话数据目录（可选）" icon="drive_file_move"
+              hint="画布数据（图片/历史/音频）保存位置。留空 = %LOCALAPPDATA%/manga-panel-studio/sessions">
+              <kit-input v-model="s.canvas.sessionsDir" mono placeholder=""></kit-input>
+            </kit-field>
+            <kit-field label="数据根目录（可选）" icon="home"
+              hint="sessionsDir 为空时的父目录。留空 = %LOCALAPPDATA%/manga-panel-studio">
+              <kit-input v-model="s.canvas.dataDir" mono placeholder=""></kit-input>
+            </kit-field>
+            <kit-field label="ffmpeg 路径（可选）" icon="movie"
+              hint="留空 = 用 PATH 里的 ffmpeg；找不到时自动回退 PIL 压缩">
+              <kit-input v-model="s.canvas.ffmpegPath" mono placeholder=""></kit-input>
             </kit-field>
             <div class="flex items-center gap-2">
-              <kit-button variant="outlined" icon="sensors" :loading="pinging" @click="ping">测试连接</kit-button>
+              <kit-button variant="outlined" icon="sensors" :loading="pinging" @click="ping">测试 OCR 连接</kit-button>
               <span class="inline-flex items-center gap-1 text-xs text-on-surface-variant" v-if="pingResult">
                 <kit-status-dot :status="pingOk ? 'ok' : 'error'"></kit-status-dot>{{ pingResult }}
               </span>
+            </div>
+            <div class="bg-surface-container-low rounded-md p-3">
+              <span class="text-xs text-on-surface-variant">保存后立即生效：会话目录、OCR 地址、Python 路径都会在下次请求时使用新值，无需重启服务。当前画布服务端口固定 7788。</span>
             </div>
           </div>
         </kit-card>
@@ -111,6 +128,7 @@
           openai: { baseUrl: '', apiKey: '', model: '' },
           doubao: { apiKey: '', model: 'seed-audio-1.0', voice: '', referenceAudio: '' },
           translator: { baseUrl: 'http://127.0.0.1:5009', projectRoot: '' },
+          canvas: { sessionsDir: '', dataDir: '', canvasBaseUrl: '', ocrBaseUrl: '', ffmpegPath: '' },
         });
         const keyPlaceholder = Vue.ref('sk-***');
         const modelOptions = Vue.ref([]);
@@ -150,6 +168,7 @@
             Object.assign(s.openai, data.openai);
             Object.assign(s.doubao, data.doubao);
             Object.assign(s.translator, data.translator);
+            if (data.canvas) Object.assign(s.canvas, data.canvas);
             if (s.openai.model) modelOptions.value = [{ label: s.openai.model, value: s.openai.model }];
           } catch (e) {
             notify().error('加载配置失败：' + e.message);
@@ -159,7 +178,7 @@
         const save = async () => {
           saving.value = true;
           try {
-            const payload = JSON.parse(JSON.stringify({ openai: { ...s.openai }, doubao: { ...s.doubao }, translator: { ...s.translator } }));
+            const payload = JSON.parse(JSON.stringify({ openai: { ...s.openai }, doubao: { ...s.doubao }, translator: { ...s.translator }, canvas: { ...s.canvas } }));
             if (payload.openai.apiKey && payload.openai.apiKey.includes('***')) payload.openai.apiKey = '';
             if (payload.doubao.apiKey && payload.doubao.apiKey.includes('***')) payload.doubao.apiKey = '';
             await api('/api/settings', payload);
