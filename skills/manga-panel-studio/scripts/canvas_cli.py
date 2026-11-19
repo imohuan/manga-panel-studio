@@ -43,11 +43,20 @@ import requests
 DEFAULT_BASE = "http://127.0.0.1:7788"
 OCR_BASE = "http://127.0.0.1:5009"
 # 路径与端口统一从 settings.json 读，不再写死盘符。
-# settings.json 位置：环境变量 STUDIO_SETTINGS_FILE > 项目根 settings.json。
+# settings.json 位置：环境变量 STUDIO_SETTINGS_FILE > ~/.manga-panel-studio/settings.json
+# > 项目根 settings.json（旧位置，向后兼容）。
 # 数据目录：环境变量 STUDIO_DATA_DIR > settings.canvas.dataDir > %LOCALAPPDATA%/manga-panel-studio
 _HERE = Path(__file__).resolve().parent
 _REPO = _HERE.parent.parent.parent          # skills/<name>/scripts/ 上三级 = 仓库根
-_SETTINGS_FILE = Path(os.environ.get("STUDIO_SETTINGS_FILE") or (_REPO / "settings.json"))
+def _default_settings_file():
+    home = Path(os.environ.get("STUDIO_DATA_DIR") or (Path.home() / ".manga-panel-studio"))
+    candidates = [home / "settings.json", _REPO / "settings.json"]
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]
+
+_SETTINGS_FILE = Path(os.environ.get("STUDIO_SETTINGS_FILE") or _default_settings_file())
 
 def _read_cfg():
     try:

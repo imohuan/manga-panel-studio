@@ -294,7 +294,7 @@ comic-canvas、manga-canvas 在 npm 上都可注册，但它们更像「类别�
 GitHub:  github.com/<you>/manga-panel-studio
 npm:     manga-panel-studio      （bin 同名，全局装完命令就是 manga-panel-studio）
 skill:   manga-panel-studio      （skills/manga-panel-studio/SKILL.md）
-home:    %LOCALAPPDATA%/manga-panel-studio   （环境变量改叫 MPS_HOME 或 STUDIO_HOME）
+home:    ~/.manga-panel-studio   （环境变量改叫 MPS_HOME 或 STUDIO_HOME）
 ```
 
 名字定了后，全局替换一次到位：仓库目录名、package.json、SKILL.md 的 name 字段、
@@ -400,7 +400,7 @@ skills/manga-panel-studio/     -> skills/manga-panel-studio/
 SKILL.md 的 name 字段             -> manga-panel-studio
 package.json name/bin             -> manga-panel-studio
 环境变量前缀                      -> STUDIO_*（STUDIO_DATA_DIR、STUDIO_SESSIONS_DIR、MT_ROOT 保留）
-数据目录                          -> %LOCALAPPDATA%/manga-panel-studio
+数据目录                          -> ~/.manga-panel-studio
 README / 文档                     -> 同步改名
 settings.json                     -> 老字段全兼容，新增 canvas 分组
 ```

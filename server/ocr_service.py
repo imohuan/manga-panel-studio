@@ -44,8 +44,8 @@ def _load_mt_root():
     env = os.environ.get("MT_ROOT")
     if env and Path(env).is_dir():
         return Path(env)
-    here = Path(__file__).resolve().parent.parent
-    sf = here / "settings.json"
+    sf = (Path(os.environ.get("STUDIO_DATA_DIR")) if os.environ.get("STUDIO_DATA_DIR")
+          else Path.home() / ".manga-panel-studio") / "settings.json"
     if sf.exists():
         try:
             root = (json.loads(sf.read_text(encoding="utf-8")).get("translator") or {}).get("projectRoot") or ""

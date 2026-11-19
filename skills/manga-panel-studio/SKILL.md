@@ -7,7 +7,7 @@ metadata:
 
 # 漫画画布 OCR 校对与配音脚本
 
-把会话目录（默认 %LOCALAPPDATA%/manga-panel-studio/sessions/<会话>/）里的漫画图片，经过「整页 OCR → 逐页检查图校对 →
+把会话目录（默认 ~/.manga-panel-studio/sessions/<会话>/）里的漫画图片，经过「整页 OCR → 逐页检查图校对 →
 修框 → AI 理解写 md → 配音脚本 → 声纹与对话音频」变成可配音的分镜数据。
 
 ## 零、总则（先读这一段）
@@ -93,7 +93,7 @@ OCR 服务地址。
 
 **项目目录**（一个会话 = 一个文件夹，一切操作都在这里）
 
-    <数据根>/sessions/<会话>/        数据根默认 %LOCALAPPDATA%/manga-panel-studio，
+    <数据根>/sessions/<会话>/        数据根默认 ~/.manga-panel-studio，
                                     可用 settings.canvas.dataDir 覆盖
     ├── NNNNN.jpg                   页面图（1280 宽 jpg）
     ├── NNNNN.json                  选框与文字：regions 数组（box/text/prob/source）

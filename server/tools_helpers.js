@@ -12,11 +12,11 @@ import { fileURLToPath } from 'node:url';
 // 路径与端口全部从 settings.json 读，不再写死盘符。
 // 读不到 settings.json 时用内置默认（用户数据目录），保证服务能起来。
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// 数据根目录：默认 ~/.manga-panel-studio（跨平台），settings.json 就存在这里。
 const HOME = process.env.STUDIO_DATA_DIR
-  || path.join(process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '.', 'AppData', 'Local'), 'manga-panel-studio');
+  || path.join(process.env.USERPROFILE || process.env.HOME || '.', '.manga-panel-studio');
 const ROOT_DIR_TOOLS = process.env.STUDIO_PROJECT_ROOT || path.resolve(__dirname, '..');
-const DEFAULT_SETTINGS_FILE = path.join(ROOT_DIR_TOOLS, 'settings.json');
-const SETTINGS_FILE = process.env.STUDIO_SETTINGS_FILE || DEFAULT_SETTINGS_FILE;
+const SETTINGS_FILE = process.env.STUDIO_SETTINGS_FILE || path.join(HOME, 'settings.json');
 // ROOT 不再是模块级常量：settings.json 改了 dataDir 后要跟着变。
 // 统一用 sessionsRoot() 取值，与 canvas.mjs 的 ROOT() getter 同一来源。
 const sessionsRoot = (raw) => resolveCanvasCfg(raw || loadSettings()).sessionsDir;
@@ -27,7 +27,7 @@ const DEFAULT_SETTINGS = {
   doubao: { apiKey: '', model: 'seed-audio-1.0', voice: '', referenceAudio: '' },
   translator: { baseUrl: 'http://127.0.0.1:5009', projectRoot: '' },
   canvas: {
-    dataDir: '',         // 空 = %LOCALAPPDATA%/manga-panel-studio
+    dataDir: '',         // 空 = ~/.manga-panel-studio
     canvasBaseUrl: '',   // 空 = http://127.0.0.1:7788
     ocrBaseUrl: '',      // 空 = http://127.0.0.1:5009
     ffmpegPath: '',      // 空 = 用 PATH 里的 ffmpeg

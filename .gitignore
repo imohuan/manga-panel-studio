@@ -8,6 +8,7 @@ __pycache__/
 # 临时文件
 .tmp-*
 *.log
+.backup
 
 # CodeGraph 索引（可随时重建）
 .codegraph/
@@ -17,7 +18,7 @@ __pycache__/
 .cdp/
 .cdp-*/
 
-# 本地密钥（API key），不进版本库
+# 本地密钥与用户数据（现在默认在 ~/.manga-panel-studio/settings.json，仓库里只留模板）
 settings.json
 
 # 协作认领状态（本机临时状态，别提交）

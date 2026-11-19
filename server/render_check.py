@@ -35,8 +35,8 @@ def _sessions_root():
     env = os.environ.get("STUDIO_DATA_DIR")
     if env:
         return Path(env)
-    here = Path(__file__).resolve().parent.parent
-    sf = here / "settings.json"
+    sf = (Path(os.environ.get("STUDIO_DATA_DIR")) if os.environ.get("STUDIO_DATA_DIR")
+          else Path.home() / ".manga-panel-studio") / "settings.json"
     if sf.exists():
         try:
             canvas = json.loads(sf.read_text(encoding="utf-8")).get("canvas") or {}
