@@ -49,7 +49,12 @@ const check = (n, c, d) => { c ? (pass++, console.log('  PASS  ' + n)) : (fail++
 await send('Page.enable');
 await send('Runtime.enable');
 await send('Page.navigate', { url: BASE });
-await sleep(3000);
+for (let i = 0; i < 40; i++) {
+  const ok = await ev('!!(window.__APP && window.__APP.S.pages.length)').catch(() => false);
+  if (ok) break;
+  await sleep(300);
+}
+await sleep(1200);
 
 const info = await ev('(() => { const p = window.__APP.S.pages.find((x) => x.regions.length > 8) || window.__APP.S.pages[0]; return { page: p.page, n: p.regions.length }; })()');
 console.log('页面', info);

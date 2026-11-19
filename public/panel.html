@@ -149,7 +149,23 @@
 
         <!-- 中间：只有这一段滚动 -->
         <div class="detail-scroll" ref="detailScroll">
-          <div style="position:relative;margin-top:12px">
+          <!-- 索引栏：上下循环切换 + 输入编号直接跳（↑/↓ 键同样可用） -->
+          <div class="jump-bar">
+            <button class="mini2" :disabled="!curPage.regions.length" title="上一个（↑）"
+              @click="selectBox(S.selPage, (S.selBox <= 0 ? curPage.regions.length : S.selBox) - 1)">
+              <span class="material-symbols-outlined" style="font-size:13px">keyboard_arrow_up</span>
+            </button>
+            <button class="mini2" :disabled="!curPage.regions.length" title="下一个（↓）"
+              @click="selectBox(S.selPage, (S.selBox + 1) % curPage.regions.length)">
+              <span class="material-symbols-outlined" style="font-size:13px">keyboard_arrow_down</span>
+            </button>
+            <span class="now">{{ S.selBox >= 0 ? '框 ' + S.selBox : '未选中' }} / {{ curPage.regions.length }}</span>
+            <span class="sp"></span>
+            <input placeholder="编号" title="输入框编号后回车跳过去"
+              @keydown.enter.prevent="$event.target.value.trim() !== '' && Number($event.target.value) >= 0 && Number($event.target.value) < curPage.regions.length && selectBox(S.selPage, Number($event.target.value))"
+              @keydown.stop />
+          </div>
+          <div class="thumb-wrap" style="margin-top:12px">
             <img class="thumb" :src="curPage.image" />
             <div v-if="curBox" :style="thumbBoxStyle"></div>
           </div>
@@ -198,7 +214,7 @@
             <span>框 #{{ S.selBox }}</span>
             <span class="mono">{{ Math.round(curBox.box[2]-curBox.box[0]) }}×{{ Math.round(curBox.box[3]-curBox.box[1]) }}</span>
           </div>
-          <kit-textarea v-model="editText" rows="3" placeholder="这块框的文字…"></kit-textarea>
+          <kit-textarea v-model="editText" rows="2" resize="none" placeholder="这块框的文字…"></kit-textarea>
           <div style="display:flex;gap:6px;margin-top:8px">
             <kit-button size="sm" icon="check" @click="applyText">应用</kit-button>
             <kit-button variant="outlined" size="sm" icon="delete" @click="removeBox(S.selPage, S.selBox)">删除</kit-button>
