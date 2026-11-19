@@ -12,7 +12,7 @@ createApp({
     const S = reactive({
       session: '', sessions: [], pages: [],
       scale: 0.3, tx: 0, ty: 0,
-      mode: 'pan', selPage: -1, selBox: -1,
+      mode: 'pan', selPage: -1, selBox: -1, selExtra: [],
       drag: null, hover: null,
     });
     // 正在识别的框：key = 页码:框坐标，值是任务 id。画布和区域列表都靠它显示加载状态
@@ -165,7 +165,8 @@ function openToolDialog(kind) {
         const busy = pageBusy.get('page:' + p.page);
         p.regions.forEach((r, ri) => {
           const [x1, y1, x2, y2] = r.box;
-          const selected = on && S.selBox === ri;
+          const selected = on && (S.selBox === ri || S.selExtra.includes(ri)
+            || (S.drag?.kind === 'select' && S.drag.pi === pi && S.drag.hits?.includes(ri)));
           const hovered = S.hover?.pi === pi && S.hover?.ri === ri;
           const redetect = r.source === 'redetect';
           const bx = p.x + x1, by = p.y + y1, bw = x2 - x1, bh = y2 - y1;
@@ -515,6 +516,49 @@ function openToolDialog(kind) {
         ctx.stroke();
         ctx.restore();
       }
+
+      // Shift 多选：拖出来的选框 + 每个被套住的框点亮
+      if (S.drag?.kind === 'select') {
+        const d = S.drag, p = S.pages[d.pi];
+        if (p && d.hits?.length) {
+          d.hits.forEach((ri) => {
+            const r = p.regions[ri];
+            if (!r) return;
+            const [x1, y1, x2, y2] = r.box;
+            const bx = p.x + x1, by = p.y + y1;
+            const bw = x2 - x1, bh = y2 - y1;
+            ctx.save();
+            ctx.fillStyle = 'rgba(37,99,235,.18)';
+            ctx.fillRect(bx, by, bw, bh);
+            ctx.strokeStyle = '#2563eb';
+            ctx.lineWidth = 2.5 / S.scale;
+            ctx.strokeRect(bx, by, bw, bh);
+            ctx.restore();
+          });
+        }
+        const b = d.rect;
+        ctx.save();
+        ctx.setLineDash([6 / S.scale, 4 / S.scale]);
+        ctx.strokeStyle = '#2563eb';
+        ctx.fillStyle = 'rgba(37,99,235,.08)';
+        ctx.lineWidth = 1.5 / S.scale;
+        ctx.fillRect(b[0], b[1], b[2] - b[0], b[3] - b[1]);
+        ctx.strokeRect(b[0], b[1], b[2] - b[0], b[3] - b[1]);
+        ctx.restore();
+
+        // 松手前先在选框上方提示能选中多少个
+        const label = `松手选中 ${d.hits?.length || 0} 个框`;
+        ctx.font = `600 ${Math.round(11 / S.scale)}px "Microsoft YaHei", sans-serif`;
+        const tw = ctx.measureText(label).width;
+        const ph = 17 / S.scale;
+        const lx2 = b[0];
+        const ly2 = Math.max(b[1] - ph - 4 / S.scale, 0);
+        ctx.fillStyle = 'rgba(37,99,235,.94)';
+        ctx.fillRect(lx2, ly2, tw + 12 / S.scale, ph);
+        ctx.fillStyle = '#fff';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, lx2 + 6 / S.scale, ly2 + ph / 2);
+      }
       ctx.restore();
 
       // 页码 + 状态点（屏幕像素）
@@ -605,6 +649,21 @@ function openToolDialog(kind) {
       if (e.button !== 0) return;
       const r = cv.value.getBoundingClientRect();
       const w = toWorld(e.clientX - r.left, e.clientY - r.top);
+      // Shift + 左键：框选识别框（先按住 Shift 再拖）。框选模式下不抢 Q 的绘制。
+      if (e.shiftKey && (S.mode === 'pan' || S.mode === 'box')) {
+        const pi = pageAt(w.x, w.y);
+        const ri = pi >= 0 ? boxAt(pi, w.x, w.y) : -1;
+        if (ri >= 0) { toggleBoxSelect(pi, ri); return; }
+        if (pi >= 0) {
+          // 同一页上再框一次时保留上一次的选择，新的框会并进去
+          const samePage = S.selPage === pi;
+          const base = samePage && S.selBox >= 0 ? [S.selBox, ...S.selExtra] : [];
+          S.selPage = pi;
+          S.drag = { kind: 'select', pi, base, start: [w.x, w.y], rect: [w.x, w.y, w.x, w.y], hits: base };
+          draw();
+          return;
+        }
+      }
       if (S.mode === 'box' || S.mode === 'detect' || S.mode === 'erase') {
         const pi = pageAt(w.x, w.y);
         if (S.mode === 'erase') {
@@ -626,10 +685,10 @@ function openToolDialog(kind) {
       if (pi >= 0) {
         const ri = boxAt(pi, w.x, w.y);
         if (ri >= 0) { selectBox(pi, ri); return; }
-        S.selPage = pi; S.selBox = -1; editText.value = '';
+        S.selPage = pi; S.selBox = -1; S.selExtra = []; editText.value = '';
         draw();
-      } else if (S.selPage >= 0 || S.selBox >= 0) {
-        S.selPage = -1; S.selBox = -1; editText.value = '';
+      } else if (S.selPage >= 0 || S.selBox >= 0 || S.selExtra.length) {
+        clearSelection();
         draw();
       }
       startPan(e);
@@ -642,6 +701,9 @@ function openToolDialog(kind) {
       cv.value.classList.add('grabbing');
     }
     function onMove(e) {
+      // 别的事件源（比如已经卸载的旧实例、内嵌页面）也可能把 pointermove 冒到这里，
+      // 没有画布时直接忽略，别让整页报错卡住拖拽
+      if (!cv.value) return;
       const r = cv.value.getBoundingClientRect();
       const w = toWorld(e.clientX - r.left, e.clientY - r.top);
       const pi = pageAt(w.x, w.y);
@@ -665,6 +727,22 @@ function openToolDialog(kind) {
       } else if (S.drag.kind === 'draw') {
         S.drag.rect = [Math.min(S.drag.rect[0], w.x), Math.min(S.drag.rect[1], w.y),
           Math.max(S.drag.rect[0], w.x), Math.max(S.drag.rect[1], w.y)];
+        draw();
+      } else if (S.drag.kind === 'select') {
+        const p = S.pages[S.drag.pi];
+        const x1 = Math.min(S.drag.start[0], w.x), y1 = Math.min(S.drag.start[1], w.y);
+        const x2 = Math.max(S.drag.start[0], w.x), y2 = Math.max(S.drag.start[1], w.y);
+        S.drag.rect = [x1, y1, x2, y2];
+        // 世界坐标换成页面内坐标后再判交叠：只选「大部分落在选框里」的框，避免轻碰就选
+        const rx1 = x1 - p.x, ry1 = y1 - p.y, rx2 = x2 - p.x, ry2 = y2 - p.y;
+        const inRect = p.regions.map((r, i) => {
+          const b = r.box;
+          const iw = Math.max(0, Math.min(rx2, b[2]) - Math.max(rx1, b[0]));
+          const ih = Math.max(0, Math.min(ry2, b[3]) - Math.max(ry1, b[1]));
+          const area = Math.max(1, (b[2] - b[0]) * (b[3] - b[1]));
+          return (iw * ih) / area > 0.5 ? i : -1;
+        }).filter((i) => i >= 0);
+        S.drag.hits = [...new Set([...(S.drag.base || []), ...inRect])];
         draw();
       } else if (S.drag.kind === 'erase') {
         const prev = S.drag.pts[S.drag.pts.length - 1];
@@ -696,6 +774,24 @@ function openToolDialog(kind) {
         for (const u of updates) dirty.delete(u.page);
         notify.success(`已擦掉 ${gone} 个框`);
         draw();
+        return;
+      }
+      if (d.kind === 'select') {
+        // 框选结束：选中命中的框。单选语义仍是「一个主框 + 若干附加框」，
+        // 这样右侧面板、删除、编辑等老逻辑都还能用。
+        const hits = d.hits || [];
+        if (!hits.length) {
+          S.selBox = -1; S.selExtra = []; editText.value = '';
+        } else {
+          S.selPage = d.pi;
+          S.selBox = hits[0];
+          S.selExtra = hits.slice(1);
+          editText.value = S.pages[d.pi].regions[hits[0]]?.text || '';
+        }
+        const n = selectedCount.value;
+        if (n > 1) notify.success(`已选中 ${n} 个框`);
+        draw();
+        revealSelectedBox();
         return;
       }
       if (d.kind !== 'draw') { draw(); return; }
@@ -772,7 +868,10 @@ function openToolDialog(kind) {
         }
         if (d.gone.has(pi)) {
           dirty.add(p.page);
-          if (pi === S.selPage && S.selBox >= p.regions.length) { S.selBox = -1; editText.value = ''; }
+        if (pi === S.selPage) {
+          if (S.selBox >= p.regions.length) { S.selBox = -1; editText.value = ''; }
+          if (S.selExtra.length) S.selExtra = S.selExtra.filter((i) => i < p.regions.length);
+        }
         }
       }
     }
@@ -802,11 +901,31 @@ function openToolDialog(kind) {
       const k = e.key.toLowerCase();
       const hot = { q: 'box', e: 'detect', d: 'erase' }[k];
       if (hot && latch !== k) { latch = k; setMode(hot); e.preventDefault(); }
-      if (e.key === 'Escape') { latch = null; setMode('pan'); S.selPage = -1; S.selBox = -1; editText.value = ''; draw(); }
+      if (e.key === 'Escape') {
+        const hadSelection = S.selPage >= 0 || S.selExtra.length || S.selBox >= 0;
+        latch = null; setMode('pan');
+        // 先退掉框的选中，再退掉整页选中，避免一次全清
+        if (hadSelection && (S.selBox >= 0 || S.selExtra.length)) {
+          S.selBox = -1; S.selExtra = []; editText.value = ''; draw();
+        } else if (hadSelection) {
+          clearSelection(); draw();
+        }
+      }
       if (k === 'f') focusTarget();
       if (e.key === 'ArrowLeft') { e.preventDefault(); cycleBox(-1); }
       if (e.key === 'ArrowRight') { e.preventDefault(); cycleBox(1); }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && S.selPage >= 0 && S.selBox >= 0) { e.preventDefault(); removeBox(S.selPage, S.selBox); }
+      // ↑/↓（包括关掉 NumLock 后的小键盘 8/2）：按顺序循环切换选中的框
+      if (e.key === 'ArrowUp') { e.preventDefault(); stepBox(-1); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); stepBox(1); }
+      // I / O / P：右侧面板的三个按钮。只有选中图片（以及「框内文字」需要选中框）时才生效
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && S.selPage >= 0) {
+        if (k === 'i') { e.preventDefault(); queuePageDetect(); }
+        else if (k === 'o') { e.preventDefault(); queuePageOcr(); }
+        else if (k === 'p' && selectedCount.value > 0) { e.preventDefault(); queueBoxOcr(); }
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedCount.value > 0) {
+        e.preventDefault(); removeSelectedBoxes();
+      }
     }
     function onKeyUp(e) {
       const k = e.key.toLowerCase();
@@ -825,11 +944,82 @@ function openToolDialog(kind) {
       cv.value.classList.toggle('grabbing', S.drag?.kind === 'pan');
     }
 
-    function selectBox(pi, ri) {
-      S.selPage = pi; S.selBox = ri;
+    function selectBox(pi, ri, additive = false) {
+      if (additive && S.selPage === pi) {
+        toggleBoxSelect(pi, ri);
+        return;
+      }
+      S.selPage = pi; S.selBox = ri; S.selExtra = [];
       editText.value = S.pages[pi]?.regions[ri]?.text || '';
       draw();
       revealSelectedBox();
+    }
+
+    // Shift 点框：已选中的取消，没选中的加入
+    function toggleBoxSelect(pi, ri) {
+      if (S.selPage !== pi) { S.selPage = pi; S.selBox = -1; S.selExtra = []; }
+      if (S.selBox === ri) {
+        S.selBox = S.selExtra.length ? S.selExtra.shift() : -1;
+        editText.value = S.selBox >= 0 ? (S.pages[pi].regions[S.selBox]?.text || '') : '';
+      } else if (S.selExtra.includes(ri)) {
+        S.selExtra = S.selExtra.filter((x) => x !== ri);
+      } else if (S.selBox < 0) {
+        S.selBox = ri;
+        editText.value = S.pages[pi].regions[ri]?.text || '';
+      } else {
+        S.selExtra = [...S.selExtra, ri];
+      }
+      draw();
+      revealSelectedBox();
+    }
+
+    function clearSelection() {
+      S.selPage = -1; S.selBox = -1; S.selExtra = []; editText.value = '';
+    }
+    // 当前选中的所有框（主框 + 附加框），都解释成 {pi, ri}
+    function selectedBoxes() {
+      if (S.selPage < 0) return [];
+      const p = S.pages[S.selPage];
+      if (!p) return [];
+      const idx = S.selBox >= 0 ? [S.selBox, ...S.selExtra] : [...S.selExtra];
+      return [...new Set(idx)].filter((i) => p.regions[i]).map((ri) => ({ pi: S.selPage, ri, box: p.regions[ri] }));
+    }
+    const selectedCount = computed(() => selectedBoxes().length);
+    const selectedText = computed(() => {
+      const n = selectedCount.value;
+      return n > 1 ? `${n} 个框` : n === 1 ? '1 个框' : '';
+    });
+    // 缩略图上把附加选中的框也画出来（淡蓝虚线），主框仍是实线
+    const thumbExtraStyles = computed(() => {
+      const p = curPage.value;
+      if (!p) return [];
+      return S.selExtra.filter((i) => p.regions[i]).map((i) => {
+        const [x1, y1, x2, y2] = p.regions[i].box;
+        return {
+          position: 'absolute', left: `${(x1 / p.width) * 100}%`, top: `${(y1 / p.height) * 100}%`,
+          width: `${((x2 - x1) / p.width) * 100}%`, height: `${((y2 - y1) / p.height) * 100}%`,
+          border: '2px dashed #2563eb', background: 'rgba(37,99,235,.10)', pointerEvents: 'none',
+          boxSizing: 'border-box',
+        };
+      });
+    });
+    // 后端回推新框后，索引可能越界：把已经消失的附加框清掉
+    function reconcileSelection() {
+      if (S.selPage < 0) { S.selExtra = []; return; }
+      const p = S.pages[S.selPage];
+      if (!p) { clearSelection(); return; }
+      if (S.selBox >= p.regions.length) { S.selBox = -1; editText.value = ''; }
+      S.selExtra = [...new Set(S.selExtra)].filter((i) => i < p.regions.length && i !== S.selBox);
+    }
+    // 后端重排/替换框之后索引会变，用坐标把原来的选择对应回来
+    const boxMatchKey = (b) => b.map((v) => Math.round(Number(v))).join(',');
+    function remapSelection(p, boxes) {
+      const keys = p.regions.map((r) => boxMatchKey(r.box));
+      const idx = boxes.map((b) => keys.indexOf(boxMatchKey(b))).filter((i) => i >= 0);
+      if (!idx.length) { S.selBox = -1; S.selExtra = []; editText.value = ''; return; }
+      S.selBox = idx[0];
+      S.selExtra = [...new Set(idx.slice(1))].filter((i) => i !== S.selBox);
+      editText.value = p.regions[idx[0]]?.text || '';
     }
 
     // 把选中的框滚到区域列表的可视范围里；顶部按钮和底部编辑框是固定的，
@@ -884,6 +1074,27 @@ function openToolDialog(kind) {
       const at = Math.max(0, list.indexOf(S.selBox));
       selectBox(S.selPage, list[(at + dir + list.length) % list.length]);
     }
+    // 小键盘 ↑/↓ 或 ↑/↓：按列表顺序在所有框里循环切换
+    function stepBox(dir) {
+      const p = curPage.value;
+      if (!p || !p.regions.length) return;
+      const n = p.regions.length;
+      const next = S.selBox < 0 ? (dir > 0 ? 0 : n - 1) : (S.selBox + dir + n) % n;
+      selectBox(S.selPage, next);
+    }
+    // 按索引直接选中：越界或不是数字就不动
+    function jumpToIndex(raw) {
+      const v = String(raw ?? '').trim().replace(/^#/, '');
+      if (!v || !/^\d+$/.test(v)) return;
+      const p = curPage.value;
+      if (!p) return;
+      const i = Number(v);
+      if (i < 0 || i >= p.regions.length) {
+        notify.warning('这页只有 ' + p.regions.length + ' 个框（编号 0 - ' + (p.regions.length - 1) + '）');
+        return;
+      }
+      selectBox(S.selPage, i);
+    }
     const thumbBoxStyle = computed(() => {
       const p = curPage.value, b = curBox.value;
       if (!p || !b) return {};
@@ -917,7 +1128,7 @@ function openToolDialog(kind) {
       }
       const d = await (await fetch(`/api/session/${encodeURIComponent(name)}`)).json();
       S.pages = (d.pages || []).map((p) => ({ ...p, img: null }));
-      S.selPage = -1; S.selBox = -1;
+      clearSelection();
       dirty.clear();
       layout();
       fitAll();
@@ -1008,9 +1219,32 @@ function openToolDialog(kind) {
       const removed = p.regions[ri];
       if (!removed) return;
       p.regions.splice(ri, 1);
-      S.selBox = -1; editText.value = '';
+      S.selBox = -1; S.selExtra = []; editText.value = '';
       draw();
-      await saveRegions(pi, 'box-del', { box: removed.box, summary: `删除框 #${ri}` });
+      await saveRegions(pi, 'box-del',
+        { box: removed.box, boxes: [removed.box], summary: `删除框 #${ri}` });
+    }
+
+    // 多选删除：一条请求保存一次，历史里只记一条
+    async function removeSelectedBoxes() {
+      const sel = selectedBoxes();
+      if (!sel.length) return;
+      const pi = sel[0].pi;
+      const p = S.pages[pi];
+      const idx = [...new Set(sel.map((x) => x.ri))].sort((a, b) => b - a);
+      if (idx.length === 1) { await removeBox(pi, idx[0]); return; }
+      const boxes = idx.map((i) => p.regions[i]?.box).filter(Boolean);
+      const ok = await confirmBox({
+        title: `删除 ${boxes.length} 个框`,
+        message: `确认删掉选中的 ${boxes.length} 个识别框？`,
+        type: 'danger', confirmText: '删除', cancelText: '取消',
+      });
+      if (!ok) return;
+      for (const i of idx) p.regions.splice(i, 1);
+      S.selBox = -1; S.selExtra = []; editText.value = '';
+      draw();
+      await saveRegions(pi, 'box-del', { boxes, summary: `删除 ${boxes.length} 个框` });
+      notify.success(`已删除 ${boxes.length} 个框`);
     }
     // 区域 tab 里清空本页所有框
     async function clearBoxes() {
@@ -1022,10 +1256,12 @@ function openToolDialog(kind) {
       });
       if (!ok) return;
       const n = p.regions.length;
+      const gone = p.regions.map((r) => r.box);
       p.regions = [];
-      S.selBox = -1; editText.value = '';
+      S.selBox = -1; S.selExtra = []; editText.value = '';
       draw();
-      await saveRegions(S.pages.indexOf(p), 'box-clear', { summary: `清空本页框：${n} 个`, count: n });
+      await saveRegions(S.pages.indexOf(p), 'box-clear',
+        { summary: `清空本页框：${n} 个`, count: n, boxes: gone });
       notify.success(`已清空 ${n} 个框`);
     }
     async function applyText() {
@@ -1056,35 +1292,45 @@ function openToolDialog(kind) {
       return j;
     }
 
-    // 只识别当前选中的那个框
+    // 框内文字：识别当前选中的所有框（Shift 多选后一次提交）
     async function queueBoxOcr() {
-      const p = curPage.value, b = curBox.value;
-      if (!p || !b) return;
-      // 立刻给这个框打上加载标记：画布上转圈、右侧列表也转圈
-      const k = boxKey(p.page, b.box);
-      pending.set(k, 'local');
+      const p = curPage.value;
+      const sel = selectedBoxes();
+      if (!p || !sel.length) return;
+      const boxes = sel.map((x) => x.box.box);
+      const keys = boxes.map((b) => boxKey(p.page, b));
+      // 立刻给这些框打上加载标记：画布上转圈、右侧列表也转圈
+      keys.forEach((k) => pending.set(k, 'local'));
       draw();
       try {
         const r = await fetch(`/api/session/${encodeURIComponent(S.session)}/job`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ page: p.page, mode: 'ocr-boxes', boxes: [b.box] }),
+          body: JSON.stringify({ page: p.page, mode: 'ocr-boxes', boxes }),
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok || j.error) {
-          pending.delete(k);
+          keys.forEach((k) => pending.delete(k));
           notify.error(j.error || '提交失败');
           draw();
           return;
         }
-        if (j.id) pending.set(k, j.id);
-        notify.success('已加入队列：识别选中框');
+        if (j.id) keys.forEach((k) => pending.set(k, j.id));
+        notify.success(boxes.length > 1 ? `已加入队列：识别 ${boxes.length} 个框` : '已加入队列：识别选中框');
         draw();
       } catch {
-        pending.delete(k);
+        keys.forEach((k) => pending.delete(k));
         notify.error('提交失败');
         draw();
       }
     }
+
+    // 快捷键 I / O 只对「当前选中页」生效，所以包一层
+    const queuePageDetect = () => { if (curPage.value) return queueJob(curPage.value.page, 'detect-page'); };
+    const queuePageOcr = () => {
+      const p = curPage.value;
+      if (!p || !p.regions.length) { notify.warning('这页还没有框，先整页找框（I）'); return; }
+      return queueJob(p.page, 'ocr-page');
+    };
 
     async function removeOp(id) {
       const r = await fetch(`/api/session/${encodeURIComponent(S.session)}/history/${id}`, { method: 'DELETE' });
@@ -1126,6 +1372,79 @@ function openToolDialog(kind) {
     async function loadHistory() {
       const r = await fetch(`/api/session/${encodeURIComponent(S.session)}/history`);
       history.value = (await r.json()).ops || [];
+      await nextTick();
+      drawManualCards();
+    }
+
+    // 历史还原：把这条记录当时的框数据写回页面（不动原图，所以不需要额外存图）
+    const restoring = ref('');
+    async function restoreOp(op) {
+      if (!op?.id) return;
+      restoring.value = op.id;
+      try {
+        const r = await fetch(`/api/session/${encodeURIComponent(S.session)}/history/${encodeURIComponent(op.id)}/restore`,
+          { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { notify.error(j.error || '还原失败'); return; }
+        notify.success(`已还原到这一步：${j.count} 个框`);
+        await refreshAll();
+        await loadHistory();
+      } finally {
+        restoring.value = '';
+      }
+    }
+
+    // 手动改框的历史不存图片：用页面原图 + 当时的框坐标现场画出来
+    function drawManualCards() {
+      const list = document.querySelectorAll('canvas.op-canvas[data-opid]');
+      for (const cvEl of list) {
+        const op = history.value.find((o) => o.id === cvEl.dataset.opid);
+        if (!op || !op.pageUrl) continue;
+        const img = new Image();
+        img.onload = () => {
+          const maxW = 300;
+          const k = Math.min(1, maxW / img.naturalWidth);
+          cvEl.width = Math.round(img.naturalWidth * k);
+          cvEl.height = Math.round(img.naturalHeight * k);
+          // index.html 有一条全局 `canvas { position:absolute; width:100%; height:100% }`
+          // 是给画布主区域用的。这里必须覆盖掉，否则历史缩略图会被拉成面板高度。
+          cvEl.style.position = 'static';
+          cvEl.style.inset = 'auto';
+          cvEl.style.width = '100%';
+          cvEl.style.height = 'auto';
+          cvEl.style.maxWidth = '320px';
+          cvEl.style.touchAction = 'auto';
+          const ctx = cvEl.getContext('2d');
+          ctx.drawImage(img, 0, 0, cvEl.width, cvEl.height);
+          cvEl.onclick = () => previewImage(op.pageUrl, `${op.page} · ${op.summary || ''}`);
+          // 删掉的框画红、补上的框画绿；橡皮擦可能一次删多个
+          const boxes = [];
+          const add = op.kind === 'box-add';
+          const color = add ? '#148c5a' : '#c0392b';
+          if (op.data?.box) boxes.push(op.data.box);
+          for (const b of op.data?.boxes || []) boxes.push(b);
+          for (const pg of op.data?.pages || []) {
+            if (pg.page !== op.page && op.page) continue;
+            for (const b of pg.boxes || []) boxes.push(b);
+          }
+          const lw = Math.max(1.5, cvEl.width / 220);
+          const seen = new Set();
+          for (const b of boxes) {
+            if (!Array.isArray(b) || b.length < 4) continue;
+            const key = b.map((v) => Math.round(Number(v))).join(',');
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const x = b[0] * k, y = b[1] * k;
+            const w = Math.max(1, (b[2] - b[0]) * k), h = Math.max(1, (b[3] - b[1]) * k);
+            ctx.fillStyle = add ? 'rgba(20,140,90,.16)' : 'rgba(192,57,43,.16)';
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = lw;
+            ctx.strokeRect(x, y, w, h);
+          }
+        };
+        img.src = op.pageUrl;
+      }
     }
     const filteredHistory = computed(() => {
       if (histFilter.value === 'all') return history.value;
@@ -1138,6 +1457,7 @@ function openToolDialog(kind) {
 
     function onToggle(id, e) {
       if (e.target.open) openOps.add(id); else openOps.delete(id);
+      if (e.target.open) nextTick().then(drawManualCards);
     }
 
     // 卡片里直接展示识别出的文字（框内识别 / 区域识别 / 整页识别都适用）
@@ -1269,10 +1589,12 @@ function openToolDialog(kind) {
     }
     async function refreshPage(idx) {
       const p = S.pages[idx];
+      const keep = S.selPage === idx ? selectedBoxes().map((x) => x.box.box) : [];
       const d = await (await fetch(`/api/session/${encodeURIComponent(S.session)}`)).json();
       const np = (d.pages || []).find((x) => x.page === p.page);
       if (!np) return;
       p.regions = np.regions; p.status = np.status;
+      if (keep.length) remapSelection(p, keep); else reconcileSelection();
       if (sideTab.value === 'history') loadHistory();
       draw();
     }
@@ -1309,6 +1631,8 @@ function openToolDialog(kind) {
       es.onerror = () => { sseOn.value = false; };
     }
     async function refreshAll() {
+      const keepSel = selectedBoxes().map((x) => x.box.box);
+      const keepPi = S.selPage;
       const d = await (await fetch(`/api/session/${encodeURIComponent(S.session)}`)).json();
       const map = new Map((d.pages || []).map((p) => [p.page, p]));
       S.pages = S.pages.map((p) => {
@@ -1317,6 +1641,8 @@ function openToolDialog(kind) {
         p.regions = np.regions; p.status = np.status;
         return p;
       });
+      if (keepSel.length && keepPi >= 0 && S.pages[keepPi]) remapSelection(S.pages[keepPi], keepSel);
+      else reconcileSelection();
       draw();
     }
     async function loadJobs() {
@@ -1365,6 +1691,8 @@ function openToolDialog(kind) {
       window.__APP = { get S() { return S; }, get sideTab() { return sideTab.value; },
         get jobs() { return jobs.value; }, get history() { return history.value; },
         get overlapGroup() { return overlapGroup.value; }, get thumbBoxStyle() { return thumbBoxStyle.value; },
+        get selectedCount() { return selectedCount.value; },
+        get cvEl() { return cv.value; },
         fitAll, focusTarget, draw, queueJob, queueAll, switchSession, previewImage, previewJson,
         setMode, selectBox, clearBoxes, queueBoxOcr, savePage, clearHistory, removeBox,
         isPending, pageIsBusy, pageBusyMode,
@@ -1416,14 +1744,17 @@ function openToolDialog(kind) {
     });
 
     return { cv, detailScroll, S, sseOn, cursor, sideTab, editText, busy, jobs, history, histFilter,
+      selectedCount, thumbExtraStyles, removeSelectedBoxes,
       ICON, MODE_LABEL, isPending, pageIsBusy, pageBusyMode,
       uploadRef, newName, showNew, curPage, curBox, fillRate, thumbBoxStyle, overlapGroup,
       filteredHistory, jobStat, fmtTime,
       fitAll, setMode, applyText, removeBox, savePage, cycleBox, selectBox, queueBoxOcr, removeOp, clearHistory,
+      stepBox, jumpToIndex,
       clearBoxes,
       createSession, upload, switchSession, queueJob, queueAll, loadHistory,
       sortedJobs, activeJobs, pauseJob, resumeJob, removeJob, pauseAll, resumeAll, clearFinished, loadJobs,
       openOps, preview, previewOpen, previewTitle, previewImage, previewJson, onToggle, jumpToHistory,
+      restoring, restoreOp,
       toolDialog, openToolDialog,
       opTexts };
   },
