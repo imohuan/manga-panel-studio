@@ -10,6 +10,9 @@
 | 历史记录 · 中间图 | 历史记录 图片保存 | `server/canvas.mjs`、`server/ocr_service.py`、`server/mask_column_ocr.py`、`server/compress_image.py` | 前端三个热文件 |
 | 右侧面板 UI | 右侧面板 UI 优化 | `public/panel.html`（布局、吸顶、底部固定）、`public/index.html`（样式） | `public/canvas.js` |
 | 多选框 · 快捷键 | 多选框+ 快捷键 | `public/canvas.js`（选区、键盘、多框识别）、`public/panel.html` 的按钮区 | 服务端 |
+| 历史记录 · 音频与 AI 校验 | 历史记录 音频与AI校验 | `server/canvas.mjs` 的音频/AI 校验段、`server/tools_helpers.js`、历史卡片展示（`public/canvas.js` 的 `ICON`/`filteredHistory`、`public/panel.html` 历史那一段） | `public/index.html`、分镜接口 |
+| 分镜 tab | 分镜 tab 渲染 | `public/storyboard.js`、`public/index.html` 的 `.sb-*` 样式、`panel.html` 里的分镜按钮和挂载点、`server/canvas.mjs` 的 `/storyboard` 段 | 历史卡片、音频/AI 校验逻辑 |
+| AI 设置 · 启动自检 | AI 设置 启动自检 | `skills/manga-canvas-pipeline/SKILL.md`、`skills/manga-canvas-pipeline/scripts/canvas_cli.py` | 前端三个热文件 |
 
 ## 热文件排队
 
@@ -36,6 +39,19 @@ node scripts/coord.mjs release public/canvas.js
 
 要改别人负责的块，先发消息商量，不要直接改。
 
+### `server/canvas.mjs` 和技能文件也要认领
+
+`server/canvas.mjs` 以前是「谁顺手谁改」，结果两个对话同时往里加接口。
+现在它和三个热文件一样要认领，改完立刻 `release`。
+
+同一个文件里按接口分段，互不覆盖：
+
+- **音频历史**：`saveAudio`、`AUDIO_DIR`、`/hist-audio/`、`pruneImages` 里的音频清理。→ 历史记录
+- **AI 读图校验**：`/api/session/<画布>/check`、`appendOp` 的 `ai-check`。→ 历史记录
+- **分镜**：`/api/session/<画布>/storyboard`（只读 GET）。→ 分镜 tab
+
+技能两个文件（`SKILL.md`、`scripts/canvas_cli.py`）也要认领；改完就提交并释放。
+
 ## 改动登记
 
 完成一块就加一行，写清「改了什么、验证方式」，别人就不会重复做：
@@ -50,6 +66,8 @@ node scripts/coord.mjs release public/canvas.js
 | 2026-11-19 | 历史记录 | 展开区说明文字统一为面板小字（9.5px/Geist，正文 11px）；CLI 删框记录框坐标（c0ff2bb） | `health-check` 全过，浏览器实测字号 9.5px |
 | 2026-11-19 | 画布下拉 | 左上角原生 `<select>` 换成 UIKit `kit-select`（搜索、键盘上下选择、点击外部/Esc 关闭），`canvas.js` 增加 `sessionOptions` 并在空值时不清空画布（0b0ed5b） | 浏览器点开/搜索/切换画布正常，控制台无报错；`verify-multiselect` 14 项、`verify-panel-smoke` 5 项、`health-check` 全过 |
 | 2026-11-19 | 音频弹窗 | 「音频」按钮打开 `/audio.html?s=当前画布`；音频页优先读 `?s=`，切换会话后同步写回地址栏（8cf26c7） | 浏览器实测 Demo2/Demo3 打开即对应画布，刷新后仍一致，控制台无报错；`health-check`、`verify-panel-smoke` 全过 |
+| 2026-11-19 | 协调 | 认领清单从 3 个热文件扩到 `server/canvas.mjs` 和技能两个文件；`status` 会单独列出共享后端和技能文档 | `node scripts/coord.mjs status` |
+| 2026-11-19 | 分镜 tab | 右侧面板新增「分镜」tab：读 `sessions/<画布>/NNNNN.md` 直接渲染成分镜稿（页面信息、场景、每镜卡片、台词、音效表），按页切换，点了画布上的图会自动跳到对应页。新增独立文件 `public/storyboard.js` + 本地 `public/vendor/marked.min.js`，面板只加一个 `#storyboard-root` 挂载点（2fff715） | 浏览器实测 Demo3/Demo1：分镜 tab 正常显示、切页、无控制台报错；四种 md 写法都能解析 |
 
 ## 事故记录：暂存区被两个对话共用
 
