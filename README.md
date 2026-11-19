@@ -41,22 +41,39 @@ AI 通过 HTTP 接口改框，前端用 SSE 实时刷新。一张漫画从「识
 
 ![顶栏](docs/images/readme/topbar.png)
 
-## 快速开始
+## 安装
+
+### 方式一：npm（推荐）
+
+```bash
+npm i -g manga-panel-studio
+manga-panel-studio        # 启动 http://127.0.0.1:7788
+```
+
+安装脚本会自动创建 `~/.manga-panel-studio/` 并把配置模板复制进去，
+打开 http://127.0.0.1:7788/settings.html 填上 API Key 即可使用。
+
+### 方式二：技能装进 AI agent
+
+```bash
+npx skills add imohuan/manga-panel-studio --skill manga-panel-studio
+```
+
+装进 Codex / Claude Code 等支持 Agent Skills 的工具后，agent 按 SKILL.md 的流程
+走「配置检查 → OCR → 校验 → 分镜 → 配音」全流程。
+
+### 从源码运行
 
 当前版本面向 Windows 本地使用。需要 Node.js，以及一个装了 `manga-image-translator` 的 Python 环境。
 
 ```powershell
-git clone <your-repo> manga-panel-studio
+git clone https://github.com/imohuan/manga-panel-studio.git
 cd manga-panel-studio
+npm install
 ```
 
-把 `start.bat` 里的 Python 路径改成你自己的：
-
-```bat
-set "OCR_PY=I:\manga-image-translator\py310\python.exe"
-```
-
-然后双击 `start.bat`，它会同时拉起两个服务：
+`start.bat` 会自动从 `~/.manga-panel-studio/settings.json` 的 `translator.projectRoot`
+推导 Python 路径，然后同时拉起两个服务：
 
 ```text
 画布服务   node server/canvas.mjs                  http://127.0.0.1:7788
@@ -122,21 +139,13 @@ GET    /events                                SSE：画布变动实时推送
 封装了建画布、上传、识别、改框、校验、配音等流程。它只通过上面的 HTTP 接口写数据，
 不直接改 `sessions/` 里的 JSON，保证历史记录和前端刷新不会漏。
 
-## 安装为 AI 技能
+## 技能与应用的分工
 
-目标是用一条命令装进 Codex / Claude Code 等支持 Agent Skills 的工具：
+技能安装器只复制技能目录本身，**不会**安装 `server/`、`public/` 和 Python 环境；
+所以画布应用要另外安装（npm 包或克隆仓库），技能负责「启动 + 调用」。
+用户数据（`sessions/`、`settings.json`）固定在 `~/.manga-panel-studio/`，不留在安装目录里。
 
-```bash
-npx skills add <owner>/manga-panel-studio --skill manga-panel-studio
-```
-
-现状与限制，请先读 [docs/skill-install-plan.md](docs/skill-install-plan.md)：
-
-- 技能安装器只复制技能目录本身，**不会**安装 `server/`、`public/` 和 Python 环境；
-- 所以画布应用要另外安装（npm 包或克隆仓库），技能负责「启动 + 调用」；
-- 用户数据（`sessions/`、`settings.json`）要放用户目录，不能留在安装目录里。
-
-这份方案把改造拆成了可逐步验证的阶段，目前尚未实施。
+设计与分阶段细节见 [docs/skill-install-plan.md](docs/skill-install-plan.md)。
 
 ## 数据放在哪
 
