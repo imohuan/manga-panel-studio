@@ -138,8 +138,9 @@ check('普通点击后只选中 1 个框', one.n === 1 && one.extra === 0, JSON.
 console.log('\n[4] 右侧面板三按钮与快捷键');
 const btnCount = await ev(`[...document.querySelectorAll('.detail-top .actions .kit-btn')].length`);
 check('右侧顶部还是 3 个按钮', btnCount === 3, String(btnCount));
-const kbd = await ev(`[...document.querySelectorAll('.detail-top kbd')].map(x => x.textContent.trim()).join('')`);
-check('按钮上有 I / O / P 角标', kbd === 'IOP', kbd);
+// 快捷键只在右上角提示，按钮里不要再挂角标（用户反馈过太挤）
+const kbd = await ev(`[...document.querySelectorAll('.detail-top kbd')].length`);
+check('按钮里不显示 I / O / P 角标', kbd === 0, String(kbd));
 
 // 拦截 fetch，记录发出去的 job 请求，避免真的占用 OCR 队列
 await ev(`(() => { window.__sent = []; const of = window.fetch;
