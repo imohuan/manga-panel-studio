@@ -68,6 +68,7 @@ node scripts/coord.mjs release public/canvas.js
 | 2026-11-19 | 音频弹窗 | 「音频」按钮打开 `/audio.html?s=当前画布`；音频页优先读 `?s=`，切换会话后同步写回地址栏（8cf26c7） | 浏览器实测 Demo2/Demo3 打开即对应画布，刷新后仍一致，控制台无报错；`health-check`、`verify-panel-smoke` 全过 |
 | 2026-11-19 | 协调 | 认领清单从 3 个热文件扩到 `server/canvas.mjs` 和技能两个文件；`status` 会单独列出共享后端和技能文档 | `node scripts/coord.mjs status` |
 | 2026-11-19 | 分镜 tab | 右侧面板新增「分镜」tab：读 `sessions/<画布>/NNNNN.md` 直接渲染成分镜稿（页面信息、场景、每镜卡片、台词、音效表），按页切换，点了画布上的图会自动跳到对应页。新增独立文件 `public/storyboard.js` + 本地 `public/vendor/marked.min.js`，面板只加一个 `#storyboard-root` 挂载点（2fff715） | 浏览器实测 Demo3/Demo1：分镜 tab 正常显示、切页、无控制台报错；四种 md 写法都能解析 |
+| 2026-11-19 | 面板拖拽宽度 | 画布与面板之间加 8px 拖拽条，宽度写进 `--panel-w`：最小 280px、最大 `min(720px, 窗口 60%)`，双击回 336px，宽度存 localStorage，窄窗口自动重夹；`.logs` 改成跟随面板宽度的 CSS 变量。新增独立文件 `public/panel-split.js`，`index.html` 只动布局那几段 | `node test/verify-panel-split.mjs` 16 项全过；`verify-panel-smoke` 5 项、`health-check` 全过；浏览器截图确认拖拽条悬停变蓝、280px 四个 tab 不折行 |
 
 ## 事故记录：暂存区被两个对话共用
 

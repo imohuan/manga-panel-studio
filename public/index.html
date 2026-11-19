@@ -23,8 +23,20 @@
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
     cursor: grab; touch-action: none; overscroll-behavior: contain; }
   canvas.grabbing { cursor: grabbing; }
-  .panel { flex: 0 0 336px; border-left: 1px solid #e3e3e3; background: #fff; display: flex;
-    flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; max-width: 336px; }
+  /* 面板宽度由 panel-split.js 写进 --panel-w；默认 336px */
+  .panel { flex: 0 0 var(--panel-w, 336px); border-left: 1px solid #e3e3e3; background: #fff; display: flex;
+    flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+  /* 画布与面板之间的拖拽条：8px 热区，中间 1px 分隔线；悬停/拖动变蓝 */
+  .panel-resizer { flex: 0 0 8px; position: relative; cursor: col-resize;
+    background: transparent; touch-action: none; z-index: 3; outline: none; }
+  .panel-resizer::before { content: ""; position: absolute; top: 0; bottom: 0; left: 50%;
+    width: 1px; margin-left: -.5px; background: #e3e3e3; transition: background-color .15s, width .15s; }
+  .panel-resizer:hover::before, .panel-resizer:focus-visible::before,
+  .panel-resizer.dragging::before { width: 2px; margin-left: -1px; background: #409eff; }
+  .panel-resizer:hover, .panel-resizer.dragging { background: rgba(64, 158, 255, .10); }
+  /* 拖动时锁住文字选中，指针保持 col-resize（盖过画布的 grab） */
+  body.panel-resizing, body.panel-resizing * { user-select: none !important;
+    -webkit-user-select: none !important; cursor: col-resize !important; }
   .panel-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
     border-bottom: 1px solid #eee; font-size: 12px; font-weight: 600; }
   .panel-head .sp { flex: 1; }
@@ -174,7 +186,9 @@
   .modes button + button { border-left: 1px solid #e8e8e8; }
   .modes button.on { background: #111; color: #fff; }
   .modes button .material-symbols-outlined { font-size: 15px; }
-  .logs { position: fixed; right: 348px; bottom: 36px; width: 520px; max-height: 62vh; display: flex;
+  /* 浮层贴着面板左边缘（面板宽 + 12px 间距）；窄窗口时不让它跑到屏幕外 */
+  .logs { position: fixed; right: calc(var(--panel-w, 336px) + 12px); bottom: 36px;
+    width: min(520px, calc(100vw - var(--panel-w, 336px) - 28px)); max-height: 62vh; display: flex;
     flex-direction: column; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
     box-shadow: 0 8px 30px rgba(0,0,0,.14); z-index: 40; overflow: hidden; }
   .logs-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid #eee; font-size: 12px; font-weight: 600; }
@@ -390,9 +404,16 @@
   .sb-doc .sb-empty { font-size: 11.5px; color: #aaa; text-align: center; padding: 28px 8px;
     line-height: 1.7; }
   /* 面板顶部有四个按钮（区域/历史/任务/分镜），窄面板里要收一点才不折行 */
+  .panel-head { flex-wrap: nowrap; overflow: hidden; }
   .panel-head .modes { flex: 0 1 auto; min-width: 0; }
-  .panel-head .modes button { padding: 0 7px; white-space: nowrap; gap: 3px; }
+  .panel-head .modes button { padding: 0 7px; white-space: nowrap; gap: 3px; min-width: 0; }
   .panel-head .modes button .material-symbols-outlined { font-size: 14px; }
+  @media (max-width: 620px) {
+    .panel-head .modes button { padding: 0 5px; gap: 2px; font-size: 11px; }
+  }
+  /* 窄面板：图标和文字都保留，放不下时只收按钮内边距，绝不换行 */
+  .panel-narrow .panel-head { gap: 4px; padding-left: 8px; padding-right: 8px; }
+  .panel-narrow .panel-head .modes button { padding: 0 4px; }
 </style>
 </head>
 <body class="bg-surface-container-low">
@@ -453,6 +474,8 @@
         <span class="material-symbols-outlined" style="font-size:15px">sync</span>识别中…
       </div>
     </div>
+
+    <!-- 拖拽条由 public/panel-split.js 插入到这里（无脚本时也不影响布局） -->
 
     <aside class="panel">
   <div class="panel-head">
@@ -676,5 +699,6 @@
 <script src="/storyboard.js"></script>
 <script src="/lightbox.js"></script>
 <script src="/canvas.js"></script>
+<script src="/panel-split.js"></script>
 </body>
 </html>
