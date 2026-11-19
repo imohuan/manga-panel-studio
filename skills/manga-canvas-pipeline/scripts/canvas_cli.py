@@ -12,8 +12,6 @@
     ocr    <会话> [--pages NNNNN ...]          整页识别（走画布任务队列）
     add    <会话> <页> x1 y1 x2 y2 文字        新增框
     rm     <会话> <页> <编号>                  删除框
-    md     <会话> <页> [--out 路径]            生成分镜 md 骨架（@对话N 引用）
-    audio  <会话> <页> [--out 路径]            生成 audio_scripts.json 骨架
     voices <会话>                              查看/初始化会话角色声纹状态
     view   <会话> <页> [--prompt 补充提示词] [--out 路径]
                                                AI 视觉校验：预览图+框数据一次给出 PASS/FAIL 与修复方向
@@ -22,23 +20,32 @@
     dlg    <会话> [--page NNNNN] [--ref 对话N] [--all]
                                                生成对话音频（--all=本会话全部）
     check                                     探活两个服务
+    doctor                                    启动检查：配置有缺项才拉起服务并打开设置页
 """
 from __future__ import annotations
 
 import argparse
 import base64
 import json
+import os
+import shutil
+import subprocess
 import sys
 import time
+import webbrowser
 from pathlib import Path
 from urllib.parse import urlencode
 from concurrent.futures import ThreadPoolExecutor
+import re
 
 import requests
 
 DEFAULT_BASE = "http://127.0.0.1:7788"
 OCR_BASE = "http://127.0.0.1:5009"
 SESSIONS_ROOT = Path("I:/comic-canvas/sessions")
+ROOT = Path("I:/comic-canvas")
+OCR_PY = Path("I:/manga-image-translator/py310/python.exe")
+LOG_DIR = ROOT / ".tmp"
 
 VIEW_SYSTEM_PROMPT = (
     "你是漫画 OCR 校对助手。用户给你一张校对预览图（灰度底图+红色标记框+坐标刻度）"
@@ -80,6 +87,93 @@ def check_services() -> None:
             print("    画布: node I:/comic-canvas/server/canvas.mjs")
             print("    OCR:  I:/manga-image-translator/py310/python.exe "
                   "I:/comic-canvas/server/ocr_service.py --port 5009 --use-gpu")
+
+
+def _alive(url, timeout=3):
+    try:
+        return requests.get(url, timeout=timeout).status_code < 500
+    except Exception:
+        return False
+
+
+def _wait_until(url, seconds, label):
+    """等到 url 通，最多 seconds 秒；返回是否通。"""
+    t0 = time.time()
+    while time.time() - t0 < seconds:
+        if _alive(url, timeout=3):
+            print(f"  {label}: 已启动（{int(time.time() - t0)} 秒）")
+            return True
+        time.sleep(2)
+    print(f"  {label}: {seconds} 秒内没起来，看日志 {LOG_DIR}")
+    return False
+
+
+def _spawn(cmd, log_name):
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log = open(LOG_DIR / log_name, "ab")
+    flags = 0
+    if os.name == "nt":
+        flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    print("  启动：" + " ".join(str(c) for c in cmd))
+    subprocess.Popen([str(c) for c in cmd], cwd=str(ROOT), stdout=log, stderr=log,
+                     stdin=subprocess.DEVNULL, creationflags=flags, close_fds=True)
+
+
+def missing_settings(st):
+    """返回没填的配置项（中文名）。key 只看到脱敏值也算已填。"""
+    miss = []
+    oa = st.get("openai") or {}
+    if not (oa.get("baseUrl") or "").strip():
+        miss.append("OpenAI Base URL")
+    if not (oa.get("apiKey") or "").strip():
+        miss.append("OpenAI API Key")
+    if not (oa.get("model") or "").strip():
+        miss.append("OpenAI 模型")
+    db = st.get("doubao") or {}
+    if not (db.get("apiKey") or "").strip():
+        miss.append("豆包 API Key")
+    tr = st.get("translator") or {}
+    if not (tr.get("baseUrl") or "").strip():
+        miss.append("OCR 服务地址")
+    return miss
+
+
+def read_settings_file():
+    """直接读 settings.json，不依赖服务是否在跑。"""
+    path = ROOT / "settings.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def cmd_doctor(args):
+    """启动时只做两件事：查配置是否存在；缺配置才拉起服务并打开设置页。"""
+    miss = missing_settings(read_settings_file())
+    if not miss:
+        print("配置已存在，不需要任何启动动作")
+        return 0
+
+    print("配置还没填：" + "、".join(miss))
+    url = DEFAULT_BASE + "/settings.html"
+
+    if _alive(DEFAULT_BASE + "/api/sessions"):
+        print("  画布服务已在运行，直接打开设置页")
+    else:
+        print("  先启动画布服务…")
+        _spawn([shutil.which("node") or "node", "server/canvas.mjs"], "canvas.log")
+        if not _wait_until(DEFAULT_BASE + "/api/sessions", 25, "画布服务"):
+            raise SystemExit("画布服务没起来，看 .tmp/canvas.log")
+
+    print("  打开设置页：" + url)
+    if not args.no_browser:
+        try:
+            webbrowser.open(url)
+        except Exception as e:
+            print("  浏览器没打开（%s），请手动打开上面的地址" % e)
+    return 2
 
 
 def get_page(base, session, page):
@@ -258,55 +352,6 @@ def cmd_fix(args):
               f"{(r.get('text') or '')[:24]!r}")
 
 
-# ---------- md 骨架 ----------
-
-def cmd_md(args):
-    p = get_page(args.base, args.session, args.page)
-    regions = p["regions"]
-    out = args.out or str(SESSIONS_ROOT / args.session / f"{args.page}.md")
-    lines = [f"# {args.page} · <本页标题>",
-             "",
-             "## 分镜",
-             ""]
-    for i, r in enumerate(regions):
-        box = r["box"]
-        y = int(box[1])
-        pct = round(y / p["height"] * 100)
-        lines.append(f"**P{i + 1}**（约 {pct}% 高度起）<镜头：远景/中景/特写>："
-                     f"<画面描述> @对话{i}")
-    lines += ["", "## 对话引用", ""]
-    for i, r in enumerate(regions):
-        t = r.get("text") or ""
-        lines.append(f"- @对话{i}（#{i} [{','.join(str(int(v)) for v in r['box'])}]）：{t}")
-    lines += ["", "## 校对", "",
-              "- [ ] 所有需要念的文字已框选（检查图逐块核对）"]
-    Path(out).write_text("\n".join(lines), encoding="utf-8")
-    print(f"骨架已写 {out}（regions={len(regions)}），agent 填充画面描述后保存")
-
-
-# ---------- audio_scripts 骨架 ----------
-
-def cmd_audio(args):
-    p = get_page(args.base, args.session, args.page)
-    regions = p["regions"]
-    out = args.out or str(SESSIONS_ROOT / args.session / f"{args.page}_audio_scripts.json")
-    data = {
-        "characters": {},
-        "dialogues": [
-            {"ref": f"@对话{i}", "speaker": "<角色名>", "page": args.page,
-             "text": (r.get("text") or ""),
-             "tone": "",
-             "performance": "<导演式提示词：按豆包 audio-1.0 官方范式写声音分镜——"
-                            "用可听行为（音色/气息/语速/停顿/副语言）按时间顺序描述这句台词"
-                            "怎么演，长句里情绪变化逐段写出来；不要用抽象情绪词。>"
-             }
-            for i, r in enumerate(regions)
-        ],
-    }
-    Path(out).write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"骨架已写 {out}（dialogues={len(regions)}）；characters 由 agent 从 md 抽离后填入")
-
-
 def cmd_voices(args):
     sdir = SESSIONS_ROOT / args.session
     vdir = sdir / "voices"
@@ -371,11 +416,44 @@ def cmd_view(args):
 
     st = load_settings().get("openai", {})
 
+    # 每次 view 都把「预览图 + 提示词 + 模型参数 + 模型回答」写进画布历史，
+    # 这样前端历史卡片里能看到 AI 当时到底看了什么、说了什么。
+    def record(page, preview_bytes, user_text, answer, ok, ms, err=None, regions=None):
+        try:
+            api(args.base, "POST", f"/api/session/{args.session}/check", json={
+                "page": page,
+                "by": "cli-view",
+                "previewB64": base64.b64encode(preview_bytes).decode() if preview_bytes else None,
+                "answer": answer,
+                "pass": bool(ok),
+                "model": st.get("model", ""),
+                "error": err,
+                "ms": ms,
+                "regions": len(regions or []),
+                "regionsData": regions,
+                "prompt": user_text,
+                "systemPrompt": VIEW_SYSTEM_PROMPT,
+                "params": {
+                    "baseUrl": st.get("baseUrl", ""),
+                    "model": st.get("model", ""),
+                    "temperature": None,
+                    "extra": {"prompt": args.prompt or ""},
+                },
+                "render": {"grid": 1, "labels": 1, "gray": 1, "q": 35, "scale": 0.5},
+            })
+        except SystemExit as e:
+            print(f"  [警告] 历史记录没写进去：{e}", file=sys.stderr)
+        except Exception as e:
+            print(f"  [警告] 历史记录没写进去：{type(e).__name__}: {e}", file=sys.stderr)
+
     def check(page):
+        t0 = time.time()
         params = {"session": args.session, "page": page, "grid": "1", "labels": "1",
                   "gray": "1", "q": "35", "scale": "0.5"}
         r = requests.get(args.base.rstrip("/") + "/render?" + urlencode(params), timeout=60)
         if r.status_code >= 400:
+            record(page, None, "", f"PREVIEW_FAIL {r.text[:200]}", False,
+                   int((time.time() - t0) * 1000), err=r.text[:200])
             return page, f"PREVIEW_FAIL {r.text[:200]}", False
         p = get_page(args.base, args.session, page)
         regions = [{"i": i, "box": x.get("box"), "text": x.get("text") or "",
@@ -393,9 +471,14 @@ def cmd_view(args):
                 answer = chat_with_vision(st.get("baseUrl", ""), st.get("apiKey", ""),
                                           st.get("model", ""), VIEW_SYSTEM_PROMPT,
                                           user_text, r.content)
-                return page, answer.strip(), answer.strip().upper().startswith("PASS")
+                ok = answer.strip().upper().startswith("PASS")
+                record(page, r.content, user_text, answer.strip(), ok,
+                       int((time.time() - t0) * 1000), regions=regions)
+                return page, answer.strip(), ok
             except Exception as e:
                 last = f"{type(e).__name__}: {e}"
+        record(page, r.content, user_text, f"CHECK_FAIL {last}", False,
+               int((time.time() - t0) * 1000), err=last, regions=regions)
         return page, f"CHECK_FAIL {last}", False
 
     with ThreadPoolExecutor(max_workers=min(4, len(pages))) as pool:
@@ -458,14 +541,53 @@ def load_scripts(session):
     return out
 
 
+def _derived_ref(i):
+    """AI 手写的脚本没有 ref 字段时，用对话顺序兜底。"""
+    return "@对话" + str(i)
+
+
+def load_characters(session):
+    """读会话级角色档案（扁平结构：名字 -> 档案）。"""
+    ch = SESSIONS_ROOT / session / "characters.json"
+    if not ch.exists():
+        return {}
+    try:
+        return json.loads(ch.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def has_ref_audio(session, speaker):
+    """角色是否已有可用的参考音频文件。"""
+    c = load_characters(session).get(speaker) or {}
+    vdir = SESSIONS_ROOT / session / "voices"
+    for key in ("final_ref_audio", "api_ref_audio", "voiceprint_audio"):
+        n = (c.get(key) or "").strip()
+        if n and (vdir / Path(n).name).exists():
+            return True
+    return (vdir / (speaker + ".mp3")).exists()
+
+
 def gen_one_dialogue(base, session, page, d):
+    # 没有 ref 字段的脚本，用顺序号兜底（输出文件名需要它）
+    if not d.get("ref"):
+        d["ref"] = _derived_ref(d.get("_idx", 0))
+    speaker = d.get("speaker") or ""
+    perf = d.get("performance") or ""
+    # 角色还没有任何参考音频时，把 characters.json 里的声纹描述
+    # 作为音色说明拼进 performance —— 服务端只在生成声纹时用它，
+    # 对话生成不会自动带上，所以在这里补。
+    if perf and speaker and not has_ref_audio(session, speaker):
+        desc = ((load_characters(session).get(speaker) or {}).get("voiceprint_desc") or "").strip()
+        if desc and desc not in perf:
+            perf = desc + perf
     r = api(base, "POST", "/api/audio/generate", json={
-        "session": session, "name": d.get("speaker") or "", "purpose": "dialogue",
+        "session": session, "name": speaker, "purpose": "dialogue",
         "text": d.get("text") or "", "tone": d.get("tone") or "",
-        "performance": d.get("performance") or "",
+        "performance": perf,
         "ref": d.get("ref") or "", "page": page,
     })
-    tag = f"{page} {d.get('ref','')} {d.get('speaker','')}"
+    tag = f"{page} {d.get('ref','')} {speaker}"
     if r.get("ok"):
         print(f"  {tag}: OK  {r.get('duration','')}s"
               + (f"  warning={r['warning']}" if r.get("warning") else ""))
@@ -478,7 +600,7 @@ def cmd_dlg(args):
     """生成对话音频，等价前端「生成」/「批量生成全部」按钮。"""
     scripts = load_scripts(args.session)
     if not scripts:
-        raise SystemExit("没有 *_audio_scripts.json；先用 audio 命令生成骨架并填充")
+        raise SystemExit("没有 *_audio_scripts.json；这个文件由 AI 读 md 后整份写出")
     vdir = SESSIONS_ROOT / args.session / "voices"
     existing = {f.name for f in vdir.glob("dlg_*.mp3")} if vdir.exists() else set()
     ok = fail = skipped = 0
@@ -488,8 +610,9 @@ def cmd_dlg(args):
             continue
         ds = data.get("dialogues") or []
         for i, d in enumerate(ds):
+            d["_idx"] = i
             want = args.ref.lstrip("@") if args.ref else None
-            have = (d.get("ref") or f"@对话{i}").lstrip("@")
+            have = (d.get("ref") or _derived_ref(i)).lstrip("@")
             if want and have != want:
                 continue
             if not args.force and any(n.startswith(f"dlg_{page}_{have}_") for n in existing):
@@ -506,12 +629,294 @@ def cmd_dlg(args):
 
 
 
+# ---------- 按 md 分镜顺序重排 ----------
+
+MD_REF_RE = re.compile(r"@对话(\d+)")
+
+
+def md_reference_order(md_text):
+    """从 md 分镜段提取 @对话N 的出现顺序。
+    只找 ## 分镜 到下一个 ## 之间的引用，不把「对话引用」清单算进去。"""
+    order, inside = [], False
+    for ln in md_text.splitlines():
+        s = ln.strip()
+        if s.startswith("## "):
+            inside = s.startswith("## 分镜")
+            continue
+        if inside:
+            for m in MD_REF_RE.finditer(ln):
+                order.append(int(m.group(1)))
+    return order
+
+
+def normalize_text(s):
+    """比对用：去掉空白和标点，只留文字，便于匹配 md 台词与 OCR 原文。"""
+    return "".join(ch for ch in (s or "") if ch.isalnum())
+
+
+def md_dialogue_lines(md_text):
+    """从 md 的「## 分镜」段抽出所有台词行，按出现顺序返回 [(speaker, text)]。"""
+    out, inside = [], False
+    for ln in md_text.splitlines():
+        s = ln.strip()
+        if s.startswith("## "):
+            inside = s.startswith("## 分镜")
+            continue
+        if not inside or not s.startswith(">"):
+            continue
+        body = s.lstrip(">").strip()
+        if "：" in body:
+            spk, _, text = body.partition("：")
+            out.append((spk.strip(), text.strip()))
+        elif ":" in body:
+            spk, _, text = body.partition(":")
+            out.append((spk.strip(), text.strip()))
+        else:
+            out.append(("", body))
+    return out
+
+
+def cmd_reorder(args):
+    """按 md 里台词的顺序重排该页 regions。
+
+    新格式的 md 不写 @对话N，台词是完整中文（可能已改过错别字），
+    所以用「相似度」把 md 台词对应回 json 的框。
+    """
+    from difflib import SequenceMatcher
+
+    sdir = SESSIONS_ROOT / args.session
+    md_path = sdir / (args.page + ".md")
+    if not md_path.exists():
+        raise SystemExit(str(md_path) + " 不存在；先写 md 分镜")
+    md_text = md_path.read_text(encoding="utf-8")
+    lines = md_dialogue_lines(md_text)
+    if not lines:
+        raise SystemExit("md 的 ## 分镜 段里没有找到以 > 开头的台词行")
+
+    p = get_page(args.base, args.session, args.page)
+    regions = p["regions"]
+    pool = [(i, normalize_text(r.get("text"))) for i, r in enumerate(regions)]
+    used, order = set(), []
+    unmatched = []
+    for spk, text in lines:
+        key = normalize_text(text)
+        if not key:
+            continue
+        best, best_score = None, 0.0
+        for i, rt in pool:
+            if i in used or not rt:
+                continue
+            score = SequenceMatcher(None, key, rt).ratio()
+            if score > best_score:
+                best, best_score = i, score
+        if best is not None and best_score >= args.threshold:
+            used.add(best)
+            order.append(best)
+        else:
+            unmatched.append((spk, text[:20], round(best_score, 2)))
+
+    if not order:
+        raise SystemExit("没有一条 md 台词能匹配到框（相似度都低于 %.2f）" % args.threshold)
+    leftover = [i for i in range(len(regions)) if i not in used]
+
+    if unmatched:
+        print("匹配不上的台词（不会进入音频脚本，请检查）：")
+        for spk, t, sc in unmatched:
+            print("  %s：%s…  最高相似度 %.2f" % (spk or "?", t, sc))
+    if leftover:
+        print("没被任何台词用到的框：%s" % leftover)
+    if (unmatched or leftover) and not args.force:
+        raise SystemExit("存在未匹配项，未写入。确认后加 --force 只重排匹配成功的部分")
+
+    new_regions = [regions[i] for i in order]
+    if args.dry_run:
+        print("%s: 预览（未写入）" % args.page)
+        for new, old in enumerate(order):
+            print("  #%d -> #%d  %r" % (old, new, (regions[old].get("text") or "")[:26]))
+        return
+
+    put_regions(args.base, args.session, args.page, new_regions,
+                "按 md 台词顺序重排 %d 框" % len(new_regions), op="box-reorder")
+    print("%s: 已按 md 台词顺序重排 %d 框" % (args.page, len(new_regions)))
+    for new, old in enumerate(order):
+        print("  #%d（原 #%d）%r" % (new, old, (regions[old].get("text") or "")[:26]))
+
+
+def cmd_reorder_all(args):
+    """对会话里所有页做 reorder，跳过没有 md 的页。"""
+    sdir = SESSIONS_ROOT / args.session
+    pages = sorted(x.stem[:5] for x in sdir.glob("*.md") if x.stem[:5].isdigit())
+    if not pages:
+        raise SystemExit(str(sdir) + " 下没有 NNNNN.md")
+    for page in pages:
+        sub = argparse.Namespace(**vars(args))
+        sub.page = page
+        print("--- %s ---" % page)
+        try:
+            cmd_reorder(sub)
+        except SystemExit as e:
+            print("  跳过: %s" % e)
+
+
+
+# ---------- 音频脚本 / 角色档案 校验 ----------
+
+ALLOWED_DIALOGUE_KEYS = {"speaker", "page", "text", "performance"}
+ALLOWED_CHAR_KEYS = {"name", "appearance", "voiceprint_desc",
+                     "voiceprint_audio", "api_ref_audio", "final_ref_audio"}
+
+
+def check_audio_script(path, chars, issues, warns):
+    name = path.name
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        issues.append("%s: JSON 解析失败 %s" % (name, e))
+        return None, 0
+    if not isinstance(data, dict):
+        issues.append("%s: 顶层必须是对象" % name)
+        return None, 0
+    for key in ("characters", "dialogues"):
+        if key not in data:
+            issues.append("%s: 缺少 %s 字段" % (name, key))
+    chs = data.get("characters")
+    dgs = data.get("dialogues")
+    if not isinstance(chs, dict):
+        issues.append("%s: characters 必须是对象（名字 -> 档案）" % name)
+        chs = {}
+    if not isinstance(dgs, list):
+        issues.append("%s: dialogues 必须是数组" % name)
+        dgs = []
+    page = name[:5]
+    for k, v in chs.items():
+        extra = set(v or {}) - {"description", "voiceprint", "ref_api", "ref_final"}
+        if extra:
+            warns.append("%s: 角色 %s 有非标准字段 %s" % (name, k, sorted(extra)))
+        if not (v or {}).get("description"):
+            warns.append("%s: 角色 %s 缺少 description" % (name, k))
+    seen = set()
+    for i, d in enumerate(dgs):
+        tag = "%s 第 %d 条" % (name, i + 1)
+        if not isinstance(d, dict):
+            issues.append("%s: 不是对象" % tag)
+            continue
+        extra = set(d) - ALLOWED_DIALOGUE_KEYS
+        if extra:
+            issues.append("%s: 多余字段 %s（只允许 speaker/page/text/performance）" % (tag, sorted(extra)))
+        spk = (d.get("speaker") or "").strip()
+        txt = (d.get("text") or "").strip()
+        perf = (d.get("performance") or "").strip()
+        if not spk:
+            issues.append("%s: speaker 为空" % tag)
+        elif chars and spk not in chars:
+            issues.append("%s: speaker %s 不在 characters.json" % (tag, spk))
+        else:
+            seen.add(spk)
+        if not txt:
+            issues.append("%s: text 为空" % tag)
+        elif "@对话" in txt:
+            issues.append("%s: text 里还有 @对话N，应写完整台词" % tag)
+        if not perf:
+            issues.append("%s: performance 为空" % tag)
+        elif len(perf) < 12:
+            warns.append("%s: performance 太短，可能没写情绪/配乐/音效" % tag)
+        if d.get("page") and str(d.get("page")) != page:
+            issues.append("%s: page 是 %s，与文件名 %s 不符" % (tag, d.get("page"), page))
+    missing = set(chs) - seen
+    if missing:
+        warns.append("%s: 这些角色没有台词 %s" % (name, sorted(missing)))
+    return page, len(dgs)
+
+
+def cmd_check_audio(args):
+    sdir = SESSIONS_ROOT / args.session
+    chars = load_characters(args.session)
+    files = sorted(sdir.glob("*_audio_scripts.json"))
+    if not files:
+        raise SystemExit(str(sdir) + " 下没有 *_audio_scripts.json")
+    issues, warns, pages, total = [], [], [], 0
+    for f in files:
+        page, n = check_audio_script(f, chars, issues, warns)
+        if page:
+            pages.append(page)
+            total += n
+    print("检查 %d 个文件，%d 条对话" % (len(files), total))
+    for page in pages:
+        try:
+            p = get_page(args.base, args.session, page)
+        except SystemExit:
+            continue
+        nreg = len(p.get("regions") or [])
+        f = sdir / (page + "_audio_scripts.json")
+        try:
+            n = len(json.loads(f.read_text(encoding="utf-8")).get("dialogues") or [])
+        except Exception:
+            continue
+        if n > nreg:
+            issues.append("%s: 对话 %d 条，但这一页只有 %d 个框" % (page, n, nreg))
+        elif n < nreg:
+            warns.append("%s: 对话 %d 条，框 %d 个（可能有框不需要配音）" % (page, n, nreg))
+    for w in warns:
+        print("  [提示] " + w)
+    for e in issues:
+        print("  [错误] " + e)
+    print("结果：" + ("通过" if not issues else "%d 个错误" % len(issues)))
+    return 0 if not issues else 1
+
+
+def cmd_check_chars(args):
+    sdir = SESSIONS_ROOT / args.session
+    path = sdir / "characters.json"
+    if not path.exists():
+        raise SystemExit(str(path) + " 不存在")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise SystemExit("JSON 解析失败: %s" % e)
+    if isinstance(data, dict) and isinstance(data.get("characters"), list):
+        raise SystemExit("结构错误：应为扁平对象（名字 -> 档案），不是 {characters: [...]}")
+    if not isinstance(data, dict):
+        raise SystemExit("结构错误：顶层必须是对象")
+    vdir = sdir / "voices"
+    issues, warns = [], []
+    for name, c in data.items():
+        if not isinstance(c, dict):
+            issues.append("%s: 档案不是对象" % name)
+            continue
+        extra = set(c) - ALLOWED_CHAR_KEYS
+        if extra:
+            warns.append("%s: 多余字段 %s" % (name, sorted(extra)))
+        if c.get("name") and c.get("name") != name:
+            issues.append("%s: name 字段是 %s，与键名不一致" % (name, c.get("name")))
+        ap = (c.get("appearance") or "").strip()
+        if not ap:
+            issues.append("%s: appearance 为空（无法在图上认人）" % name)
+        elif len(ap) < 15:
+            warns.append("%s: appearance 太短，可能不足以区分角色" % name)
+        if not (c.get("voiceprint_desc") or "").strip():
+            issues.append("%s: voiceprint_desc 为空" % name)
+        for key in ("voiceprint_audio", "api_ref_audio", "final_ref_audio"):
+            fn = (c.get(key) or "").strip()
+            if fn and not (vdir / Path(fn).name).exists():
+                issues.append("%s: %s 指向的文件不存在（%s）" % (name, key, fn))
+    print("角色 %d 个" % len(data))
+    for w in warns:
+        print("  [提示] " + w)
+    for e in issues:
+        print("  [错误] " + e)
+    print("结果：" + ("通过" if not issues else "%d 个错误" % len(issues)))
+    return 0 if not issues else 1
+
+
 def build_parser():
     ap = argparse.ArgumentParser(prog="canvas_cli", description="漫画画布技能 CLI")
     ap.add_argument("--base", default=DEFAULT_BASE)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("check", help="探活画布与 OCR 服务"); s.set_defaults(func=cmd_check)
+    s = sub.add_parser("doctor", help="启动检查：配置没填就拉起服务并打开设置页")
+    s.add_argument("--no-browser", action="store_true", help="配置缺失时不自动打开设置页")
+    s.set_defaults(func=cmd_doctor)
     s = sub.add_parser("list"); s.add_argument("session"); s.set_defaults(func=cmd_list)
     s = sub.add_parser("show"); s.add_argument("session"); s.add_argument("page"); s.set_defaults(func=cmd_show)
     s = sub.add_parser("init"); s.add_argument("session"); s.add_argument("images", nargs="+"); s.set_defaults(func=cmd_init)
@@ -525,11 +930,13 @@ def build_parser():
     s = sub.add_parser("fix"); s.add_argument("session"); s.add_argument("page")
     s.add_argument("--rm", default=None); s.add_argument("--add", type=int, nargs=4, default=None)
     s.add_argument("--text", default=None); s.set_defaults(func=cmd_fix)
-    s = sub.add_parser("md"); s.add_argument("session"); s.add_argument("page")
-    s.add_argument("--out", default=None); s.set_defaults(func=cmd_md)
-    s = sub.add_parser("audio"); s.add_argument("session"); s.add_argument("page")
-    s.add_argument("--out", default=None); s.set_defaults(func=cmd_audio)
+    s = sub.add_parser("reorder"); s.add_argument("session")
+    s.add_argument("page", nargs="?", default=None)
+    s.add_argument("--dry-run", action="store_true"); s.add_argument("--force", action="store_true")
+    s.set_defaults(func=lambda a: cmd_reorder_all(a) if not a.page else cmd_reorder(a))
     s = sub.add_parser("voices"); s.add_argument("session"); s.set_defaults(func=cmd_voices)
+    s = sub.add_parser("check-audio"); s.add_argument("session"); s.set_defaults(func=cmd_check_audio)
+    s = sub.add_parser("check-characters"); s.add_argument("session"); s.set_defaults(func=cmd_check_chars)
     s = sub.add_parser("vp"); s.add_argument("session"); s.add_argument("names", nargs="*"); s.set_defaults(func=cmd_vp)
     s = sub.add_parser("dlg"); s.add_argument("session"); s.add_argument("--page", default=None); s.add_argument("--ref", default=None); s.add_argument("--force", action="store_true"); s.set_defaults(func=cmd_dlg)
     s = sub.add_parser("view"); s.add_argument("session"); s.add_argument("page")
