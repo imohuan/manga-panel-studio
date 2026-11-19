@@ -12,6 +12,10 @@
         <span class="material-symbols-outlined">task_alt</span>任务
         <span v-if="activeJobs.length" style="color:#999;font-size:10px">{{ activeJobs.length }}</span>
       </button>
+      <!-- 分镜：直接在面板里渲染 sessions/<画布>/NNNNN.md -->
+      <button style="height:24px" :class="{on: sideTab === 'storyboard'}" @click="sideTab = 'storyboard'">
+        <span class="material-symbols-outlined">movie</span>分镜
+      </button>
     </div>
     <span class="sp"></span>
     <span v-if="sideTab === 'detail' && curPage" class="mono" style="font-size:11px;color:#999;font-weight:400">{{ curPage.regions.length }} 框</span>
@@ -63,6 +67,11 @@
           <span class="material-symbols-outlined">delete</span>
         </button>
       </div>
+    </div>
+
+    <!-- ========== 分镜 ========== -->
+    <div v-else-if="sideTab === 'storyboard'">
+      <div id="storyboard-root" :data-session="S.session" :data-page="curPage ? curPage.page : ''"></div>
     </div>
 
     <!-- ========== 历史 ========== -->
