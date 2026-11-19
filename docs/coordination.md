@@ -13,6 +13,7 @@
 | 历史记录 · 音频与 AI 校验 | 历史记录 音频与AI校验 | `server/canvas.mjs` 的音频/AI 校验段、`server/tools_helpers.js`、历史卡片展示（`public/canvas.js` 的 `ICON`/`filteredHistory`、`public/panel.html` 历史那一段） | `public/index.html`、分镜接口 |
 | 分镜 tab | 分镜 tab 渲染 | `public/storyboard.js`、`public/index.html` 的 `.sb-*` 样式、`panel.html` 里的分镜按钮和挂载点、`server/canvas.mjs` 的 `/storyboard` 段 | 历史卡片、音频/AI 校验逻辑 |
 | AI 设置 · 启动自检 | AI 设置 启动自检 | `skills/manga-canvas-pipeline/SKILL.md`、`skills/manga-canvas-pipeline/scripts/canvas_cli.py` | 前端三个热文件 |
+| 面板拖拽宽度 | 面板拖拽宽度 | `public/panel-split.js`、`public/index.html` 的 `.main`/`.panel`/`.panel-resizer`/`.logs` | 面板内的 tab 和卡片结构 |
 
 ## 热文件排队
 

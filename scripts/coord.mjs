@@ -22,9 +22,17 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STATE_DIR = path.join(ROOT, '.coord');
 const STATE_FILE = path.join(STATE_DIR, 'claims.json');
 const HOT_FILES = ['public/canvas.js', 'public/panel.html', 'public/index.html'];
+// 后端也有共享文件：两个人同时改 server/canvas.mjs，一样会互相覆盖。
+// 它不再是「抽空顺手改一下」的文件，要改先认领。
+const SERVER_SRC = ['server/canvas.mjs'];
+// 技能和它的 CLI 也会被两个对话同时改（一个加启动自检，一个加历史记录）。
+const SHARED_DOCS = [
+  'skills/manga-canvas-pipeline/SKILL.md',
+  'skills/manga-canvas-pipeline/scripts/canvas_cli.py',
+];
 // 共享的运行时：谁要重启服务，先认领，避免别人正在测的时候被打断
 const RUNTIME = ['runtime:canvas', 'runtime:ocr'];
-const ALL = [...HOT_FILES, ...RUNTIME];
+const ALL = [...HOT_FILES, ...SERVER_SRC, ...SHARED_DOCS, ...RUNTIME];
 const STALE_MINUTES = 45;
 
 const hashOf = (rel) => {
@@ -125,6 +133,10 @@ function runtimeReport() {
 if (cmd === 'status' || !cmd) {
   console.log('热文件状态（同一时间只允许一个对话修改）：\n');
   for (const rel of HOT_FILES) console.log(describe(rel, state.files[rel]) + '\n');
+  console.log('共享后端文件（同一时间只允许一个对话修改）：\n');
+  for (const rel of SERVER_SRC) console.log(describe(rel, state.files[rel]) + '\n');
+  console.log('技能与文档（同一时间只允许一个对话修改）：\n');
+  for (const rel of SHARED_DOCS) console.log(describe(rel, state.files[rel]) + '\n');
   console.log('共享服务（重启前先认领）：\n');
   for (const rel of RUNTIME) {
     const rec = state.files[rel];
