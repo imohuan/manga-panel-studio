@@ -1,6 +1,7 @@
 # 把 comic-canvas 做成「可安装技能」的改造方案
 
-> 状态：**v2，按 2026-11-19 的反馈修订**（改名、依赖归属、npm/GitHub 发布方式）。
+> 状态：**v3，按 2026-11-19 的反馈修订**（改名、依赖归属、发布方式、
+> 配置统一走 settings.json、测试脚本清理）。
 > 调研依据见 [research-skill-install.md](research-skill-install.md)。
 >
 > 反馈确认的三件事：
@@ -315,3 +316,91 @@ home:    %LOCALAPPDATA%/manga-panel-studio   （环境变量改叫 MPS_HOME 或 
 
 所以用户只需要做一件事：装 manga-image-translator（手动装，或让 agent 按「五点五」
 的指引来装）。其余一律不用单独装。
+
+## 十、按 2026-11-19 第三轮反馈的修订
+
+### 1. 两个测试脚本是垃圾，直接删
+
+\`skills/manga-canvas-pipeline/scripts/_h.py\` 和 \`_t2.py\` 是之前调试留下的临时文件，
+不是技能的一部分，谁都没引用它们。处理：
+
+- 两个文件直接删掉（\`_h.py\` 未跟踪，删了就没了；\`_t2.py\` 已被 Git 跟踪，
+  删除后提交即可从当前版本消失）；
+- \`_t2.py\` 里的真实 API key 要去平台后台作废——它已经进 Git 历史，删文件不等于删历史；
+- 为了不重蹈覆辙，加一条规则：\`scripts/_*.py\` 一律不进 Git（写进 .gitignore），
+  以后临时调试文件放这里自动被忽略；
+- 另外把 \`skills/manga-canvas-pipeline/scripts/__pycache__/\` 也加进忽略
+  （现在靠全局 \`__pycache__/\` 规则覆盖，显式写一份更保险）。
+
+### 2. 地址写死的问题：统一收口到 settings.json
+
+用户说得对：已经有 settings.json 了，就不该再到处写绝对路径。修订后的设计：
+
+**settings.json 新增结构**（合并进现有文件，老字段全部保留）：
+
+```json
+{
+  "openai":   { "baseUrl": "...", "apiKey": "...", "model": "..." },
+  "doubao":   { "apiKey": "...", "model": "..." },
+  "translator": {
+    "baseUrl":     "http://127.0.0.1:5009",
+    "projectRoot": "D:/manga-image-translator"
+  },
+  "canvas": {
+    "sessionsDir":  "",       // 空 = 默认 %LOCALAPPDATA%/<包名>/sessions
+    "dataDir":      "",       // 空 = 默认 %LOCALAPPDATA%/<包名>
+    "ocrBaseUrl":   "",       // 空 = 默认 http://127.0.0.1:5009
+    "canvasBaseUrl":"",      // 空 = 默认 http://127.0.0.1:7788
+    "ffmpegPath":   ""        // 空 = 用 PATH 里的 ffmpeg
+  }
+}
+```
+
+**读取规则（所有代码统一）**：环境变量 > settings.json > 内置默认值。
+
+| 现在写死的地方 | 以后从哪读 | 回退顺序 |
+| --- | --- | --- |
+| canvas.mjs:41 sessions | settings.canvas.sessionsDir | env STUDIO_SESSIONS_DIR > settings > 默认用户目录 |
+| canvas.mjs:42 OCR 地址 | settings.translator.baseUrl | settings > 默认 5009 |
+| canvas.mjs:43 PY | settings.translator.projectRoot + settings.json 推导 | env MT_ROOT > settings > PATH python |
+| canvas.mjs:44 FFMPEG | settings.canvas.ffmpegPath | settings > PATH > 项目内无 → 原样保存兜底 |
+| ocr_service.py:37 MT 目录 | settings.translator.projectRoot | env MT_ROOT > settings > 报错并给安装指引 |
+| canvas_cli.py:45-49 | settings.json 同上 | settings > 默认值 |
+| tools_helpers.js:11-13 | settings.canvas.dataDir | settings > 默认用户目录 |
+| render_check.py:32 sessions | settings.canvas.sessionsDir | settings > 默认 |
+| start.bat:6 OCR_PY | settings.translator.projectRoot 推导 | settings > 提示去设置页填 |
+
+关键点：
+
+- **Node 服务自己不写死任何盘符**；启动时读 settings.json，缺失字段用默认值；
+- **ocr_service.py 是 Python**，它读同一个 settings.json（标准 json 库即可），
+  路径来源唯一，不会出现两边不一致；
+- **环境变量只做临时覆盖**（调试、CI 用），日常配置全部在设置页里改；
+- 设置页（public/settings.html）加一个「路径与端口」分组，可视化编辑这些字段；
+- settings.json 里存的是本机路径，天然不该进 Git（已被忽略），npm 包里只放 example。
+
+### 3. 实施顺序相应调整
+
+原阶段 1（路径改造）拆成两步，先收口配置再动目录：
+
+| 阶段 | 内容 | 验证 |
+| --- | --- | --- |
+| 0 | 删 _h.py、_t2.py；作废泄漏 key；.gitignore 补 \`_*.py\`；package.json；settings.example.json | git log 干净、npm pack 通过 |
+| 1a | settings.json 加 canvas/translator 分组；server 四处 + CLI + start.bat 全部改读配置 | 改 settings.json 里的路径，服务行为跟着变 |
+| 1b | 数据目录默认值切到 %LOCALAPPDATA%/<包名>；settings 页加路径编辑；旧 sessions 手动搬一次 | 换盘符启动正常 |
+| 2 | 技能改名 manga-panel-studio；SKILL.md 精简；scripts/run.mjs 启动器 | npx skills add 本仓库可用 |
+| 3 | npm 发布 + GitHub 公开 | 干净机器全流程 |
+
+### 4. 名字确认：manga-panel-studio
+
+按反馈采用推荐候选。全局替换清单（实施时一次性完成）：
+
+```text
+skills/manga-canvas-pipeline/     -> skills/manga-panel-studio/
+SKILL.md 的 name 字段             -> manga-panel-studio
+package.json name/bin             -> manga-panel-studio
+环境变量前缀                      -> STUDIO_*（STUDIO_DATA_DIR、STUDIO_SESSIONS_DIR、MT_ROOT 保留）
+数据目录                          -> %LOCALAPPDATA%/manga-panel-studio
+README / 文档                     -> 同步改名
+settings.json                     -> 老字段全兼容，新增 canvas 分组
+```
