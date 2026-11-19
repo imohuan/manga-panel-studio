@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Manga OCR proofreading canvas with dubbing pipeline (Node backend + vanilla JS frontend, zero npm runtime deps)",
   "bin": {
-    "manga-panel-studio": "./bin/cli.mjs"
+    "manga-panel-studio": "bin/cli.mjs"
   },
   "scripts": {
     "start": "node server/canvas.mjs",
