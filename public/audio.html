@@ -243,7 +243,9 @@ const d = await api('/api/audio/health');
       async function loadSessions() {
         const d = await api('/api/sessions');
         sessions.value = d.sessions || [];
-        const remembered = localStorage.getItem('audio_tool_last_session');
+        // 从画布页「音频」按钮打开时，地址栏带 ?s=当前画布，优先用它（否则沿用上次选的）
+        const fromQuery = new URLSearchParams(location.search).get('s');
+        const remembered = fromQuery || localStorage.getItem('audio_tool_last_session');
         if (remembered && sessions.value.includes(remembered)) {
           session.value = remembered;
         } else if (sessions.value.length) {
@@ -253,6 +255,11 @@ const d = await api('/api/audio/health');
       }
       async function onSessionChange() {
         localStorage.setItem('audio_tool_last_session', session.value);
+        // 同步到地址栏，刷新后还停在这个画布（也不会被旧链接带回去）
+        const u = new URL(location.href);
+        if (session.value) u.searchParams.set('s', session.value);
+        else u.searchParams.delete('s');
+        history.replaceState(null, '', u.href);
         selectedChar.value = null;
         await loadAll();
       }

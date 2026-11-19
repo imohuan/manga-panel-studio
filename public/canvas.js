@@ -53,7 +53,8 @@ createApp({
 const toolDialog = reactive({ open: false, full: false, url: '', title: '' });
 function openToolDialog(kind) {
   if (kind === 'settings') { toolDialog.url = '/settings.html'; toolDialog.title = '设置'; }
-  else if (kind === 'audio') { toolDialog.url = '/audio.html'; toolDialog.title = '音频管理'; }
+  // 音频页默认打开「当前画布」：把会话名放到地址上，audio.html 会优先读它
+  else if (kind === 'audio') { toolDialog.url = '/audio.html?s=' + encodeURIComponent(S.session); toolDialog.title = '音频管理'; }
   else return;
   toolDialog.full = false;
   toolDialog.open = true;
