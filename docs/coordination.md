@@ -44,6 +44,21 @@ node scripts/coord.mjs release public/canvas.js
 | --- | --- | --- | --- |
 | 2026-11-19 | 协调 | 建立认领工具和本表，存快照 tag `coord-snapshot-20261119` | `node scripts/coord.mjs status` |
 | 2026-11-19 | 协调 | 发现右侧面板任务在 index.html 删掉了多选任务的 kbd.hk / sel-count 样式，已按原样恢复（2ea95ee） | 页面源码里三类选择器都在 |
+| 2026-11-19 | 多选框 | Shift 多选 + I/O/P 快捷键 + 框内文字批量识别（443947c） | `health-check` 通过 |
+| 2026-11-19 | 右侧面板 | 区域列表编号跳转栏、底部编辑框压矮（481485d） | 面板截图 |
+| 2026-11-19 | 历史记录 | 中间图落盘、图片格式修正、还原到这一步（56a7e53、099c037） | 历史卡片能显示中间图并可还原 |
+
+## 事故记录：暂存区被两个对话共用
+
+2026-11-19 14:2x，右侧面板和历史记录两个对话同时往 Git 暂存区写。
+右侧面板 `git add public/panel.html` 之后，历史记录提交时把这条也带走了；
+随后两个对话各自 `git reset --soft HEAD~1` 拆提交，来回折腾了几次。
+
+最终没有丢代码（服务端文件始终留在工作区），但这说明：
+
+**`git add` 和 `git commit` 之间不要有等待。** 要么一条命令连着做完，
+要么先 `git diff --cached --stat` 确认只有自己的文件，立即提交。
+两个对话同时暂存时，永远只 `git add <自己的具体文件>`，绝不用 `git add -A`。
 | 2026-11-19 | 多选框 · 快捷键 | `canvas.js`：Shift 拖动框选 / Shift 点选加减、多选状态 `selExtra`、I/O/P 快捷键、框内文字批量提交、Del 批量删除、导出 `stepBox`/`jumpToIndex`。`panel.html` 只改三个按钮（快捷键角标 + 多选计数）。提交 443947c | `node test/verify-multiselect.mjs` 14 项全过、`node test/verify-panel-smoke.mjs` 5 项全过、`node scripts/health-check.mjs` 全部打勾 |
 
 ## 已知问题

@@ -74,6 +74,23 @@ node scripts/coord.mjs release public/canvas.js
 
 历史的整体快照在 git tag `coord-snapshot-20261119`，可以作为找回参考。
 
+### 提交时最容易踩的坑：暂存区是共用的
+
+`git add` 之后别停手，**同一个命令里连着 commit**：
+
+```powershell
+git add public/panel.html
+git commit -m "[面板] 说明"
+```
+
+如果中间去做了别的事，另一个对话可能也 `git add` 了它的文件，
+你这一提交就把对方的东西一起带走了。真要停下来看一眼，就加一句
+`git diff --cached --stat`，确认只有自己的文件再提交。
+
+发现带错了：`git reset --soft HEAD~1` 把提交拆回暂存区（内容不丢），
+再 `git reset HEAD -- <别人的文件>` 把它移出暂存区，然后重新提交自己的。
+千万不要用 `--hard`。
+
 ## 7. 共享服务：别随手重启
 
 所有对话共用同一套正在跑的服务：
