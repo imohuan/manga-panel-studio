@@ -112,10 +112,39 @@
               <figcaption>输出 · {{ o.output?.count ?? 0 }} 框</figcaption>
             </figure>
           </div>
+          <!-- 手动改框不存图：用页面原图 + 当时的框坐标现场画 -->
+          <figure v-if="!o.outputUrl && o.pageUrl" class="op-manual">
+            <canvas ref="manualCanvas" :data-opid="o.id" class="op-canvas"></canvas>
+            <figcaption class="op-canvas-cap">
+              <template v-if="o.kind === 'box-add'">补的框：绿框</template>
+              <template v-else-if="o.kind === 'box-del' || o.kind === 'box-erase'">删掉的框：红框</template>
+              <template v-else-if="o.kind === 'box-clear'">清空前的框：红框</template>
+              <template v-else-if="o.kind === 'box-restore'">还原后的框：全部画出</template>
+              <template v-else>改动位置</template>
+              <span v-if="o.data?.count != null"> · 剩 {{ o.data.count }} 个</span>
+            </figcaption>
+          </figure>
+          <!-- 模型内部步骤：mask / 分块 / 切列 / 文字条 -->
+          <div v-if="o.traceUrls?.length" class="trace-block">
+            <div class="trace-head">模型内部的每一步</div>
+            <div class="trace-grid">
+              <figure v-for="t in o.traceUrls" :key="t.key + t.url">
+                <img :src="t.url" loading="lazy" @click="previewImage(t.url, t.label)" />
+                <figcaption>{{ t.label }}</figcaption>
+              </figure>
+            </div>
+          </div>
           <div v-if="o.data?.scope === 'erase' && o.data.pages" class="erase-detail">
             <span v-for="p in o.data.pages" :key="p.page" class="erase-page">
               {{ p.page }} · 删 {{ p.boxes?.length || 0 }} 个 · 剩 {{ p.left }}
             </span>
+          </div>
+          <div v-if="o.data?.snapshot?.length" class="op-restore">
+            <button class="mini2" :disabled="restoring === o.id"
+              @click.prevent.stop="restoreOp(o)">
+              <span class="material-symbols-outlined" style="font-size:12px;vertical-align:-2px">settings_backup_restore</span>
+              {{ restoring === o.id ? '还原中…' : `还原到这一步（${o.data.snapshot.length} 框）` }}
+            </button>
           </div>
           <!-- 识别出的文字：直接摊在卡片里，不用再点 JSON -->
           <div v-if="opTexts(o).length" class="op-texts">
