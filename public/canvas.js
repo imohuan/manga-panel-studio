@@ -1423,7 +1423,6 @@ function openToolDialog(kind) {
           cvEl.style.touchAction = 'auto';
           const ctx = cvEl.getContext('2d');
           ctx.drawImage(img, 0, 0, cvEl.width, cvEl.height);
-          cvEl.onclick = () => previewImage(op.pageUrl, `${op.page} · ${op.summary || ''}`);
           // 删掉的框画红、补上的框画绿；橡皮擦可能一次删多个
           const boxes = [];
           const add = op.kind === 'box-add';
@@ -1449,6 +1448,10 @@ function openToolDialog(kind) {
             ctx.lineWidth = lw;
             ctx.strokeRect(x, y, w, h);
           }
+          // 全屏预览要看到「带框的那张图」：直接把画好的 canvas 转成图片，
+          // 不能再用原始页面图，否则预览里一个框都没有。
+          cvEl.onclick = () => previewImage(cvEl.toDataURL('image/png'),
+            `${op.page || ''} · ${op.summary || '改框记录'}`);
         };
         img.src = op.pageUrl;
       }
