@@ -93,7 +93,8 @@ OCR 服务地址。
 
 **项目目录**（一个会话 = 一个文件夹，一切操作都在这里）
 
-    %LOCALAPPDATA%/manga-panel-studio/sessions/<会话>/   （可用 settings.canvas.sessionsDir 覆盖）
+    <数据根>/sessions/<会话>/        数据根默认 %LOCALAPPDATA%/manga-panel-studio，
+                                    可用 settings.canvas.dataDir 覆盖
     ├── NNNNN.jpg                   页面图（1280 宽 jpg）
     ├── NNNNN.json                  选框与文字：regions 数组（box/text/prob/source）
 ├── NNNNN.md                    【本技能产出】AI 读图写出的分镜，台词完整内嵌

@@ -1007,7 +1007,7 @@ http.createServer(async (req, res) => {
       openaiListModels, checkOpenaiModel, doubaoTts, translatorPing,
       readCharactersRaw, normalizeCharacters, updateCharacter,
       charVoicesView, readAudioScripts, callDoubao, safeToolName, findRefPath,
-          cleanBaseUrl, maskKey, loadDoubaoAuth, ROOT: ROOT(),
+          cleanBaseUrl, maskKey, loadDoubaoAuth, ROOT: ROOT,
       // 音频生成也要留历史：和识别记录放在同一个 history/ops.json
       appendOp, saveAudio, sha1,
     })) return;

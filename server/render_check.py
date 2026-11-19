@@ -130,7 +130,15 @@ canvas.paste(img, (MARGIN, MARGIN))
 d2 = ImageDraw.Draw(canvas)
 
 try:
-    f_major = ImageFont.truetype(r'C:\\Windows\\Fonts\\msyh.ttc', 15)
+    # 字体：STUDIO_FONT > 常见中文字体候选 > load_default（不因缺字体 500）
+    _font_path = os.environ.get("STUDIO_FONT")
+    if not _font_path:
+        for cand in (r'C:\\Windows\\Fonts\\msyh.ttc', r'C:\\Windows\\Fonts\\simhei.ttf',
+                     '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc'):
+            if Path(cand).exists():
+                _font_path = cand
+                break
+    f_major = ImageFont.truetype(_font_path, 15) if _font_path else ImageFont.load_default()
 except: f_major = None
 
 meta = json.loads((root / (page + '.json')).read_text(encoding='utf-8'))

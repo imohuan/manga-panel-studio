@@ -17,7 +17,9 @@ const HOME = process.env.STUDIO_DATA_DIR
 const ROOT_DIR_TOOLS = process.env.STUDIO_PROJECT_ROOT || path.resolve(__dirname, '..');
 const DEFAULT_SETTINGS_FILE = path.join(ROOT_DIR_TOOLS, 'settings.json');
 const SETTINGS_FILE = process.env.STUDIO_SETTINGS_FILE || DEFAULT_SETTINGS_FILE;
-const ROOT = HOME + '/sessions';
+// ROOT 不再是模块级常量：settings.json 改了 dataDir 后要跟着变。
+// 统一用 sessionsRoot() 取值，与 canvas.mjs 的 ROOT() getter 同一来源。
+const sessionsRoot = (raw) => resolveCanvasCfg(raw || loadSettings()).sessionsDir;
 const DOUBAO_URL = 'https://openspeech.bytedance.com/api/v3/tts/create';
 
 const DEFAULT_SETTINGS = {
@@ -84,6 +86,8 @@ const mergeIncoming = (current, incoming) => {
   const merged = structuredClone(current);
   for (const section of ['openai', 'doubao', 'translator', 'canvas']) {
     for (const [k, v] of Object.entries(incoming?.[section] || {})) {
+      // 已废弃的字段不接受（sessionsDir 曾存在，旧配置里可能还有）
+      if (section === 'canvas' && k === 'sessionsDir') continue;
       if (k === 'apiKey' || k === 'referenceAudio') {
         if (typeof v === 'string' && v.length > 0) merged[section][k] = v;
       } else {
@@ -191,7 +195,7 @@ function loadDoubaoAuth() {
   return { error: 'no_key' };
 }
 
-function charFile(session) { return path.join(ROOT, session, 'characters.json'); }
+function charFile(session, root) { return path.join(root || sessionsRoot(), session, 'characters.json'); }
 
 async function readCharactersRaw(session) {
   try { return JSON.parse(await fs.promises.readFile(charFile(session), 'utf8')); }
@@ -233,7 +237,7 @@ async function updateCharacter(session, name, patch) {
 
 async function charVoicesView(session) {
   const raw = await readCharactersRaw(session);
-  const voicesDir = path.join(ROOT, session, 'voices');
+const voicesDir = path.join(sessionsRoot(), session, 'voices');
   const list = normalizeCharacters(raw);
   return Promise.all(list.map(async (c) => {
     const pick = async (p) => {
@@ -256,7 +260,7 @@ async function charVoicesView(session) {
 }
 
 async function readAudioScripts(session) {
-  const dir = path.join(ROOT, session);
+const dir = path.join(sessionsRoot(), session);
   let names = [];
   try { names = (await fs.promises.readdir(dir)).filter((n) => /^\d{5}_audio_scripts\.json$/.test(n)).sort(); }
   catch { /* 会话目录不存在 */ }
@@ -347,7 +351,7 @@ async function findRefPath(session, name) {
   const c = chars.find((x) => x.name === name);
   const refFile = c && (c.final_ref_audio || c.api_ref_audio);
   if (!refFile) return null;
-  const cand = path.join(ROOT, session, 'voices', refFile);
+  const cand = path.join(sessionsRoot(), session, 'voices', refFile);
   try { await fs.promises.access(cand); return cand; } catch { return null; }
 }
 
@@ -355,5 +359,5 @@ export { loadSettings, saveSettings, publicView, mergeIncoming,
          openaiListModels, checkOpenaiModel, doubaoTts, translatorPing,
          loadDoubaoAuth, readCharactersRaw, normalizeCharacters, updateCharacter,
          charVoicesView, readAudioScripts, callDoubao, safeToolName, findRefPath,
-         cleanBaseUrl, maskKey, resolvePaths, HOME, ROOT_DIR_TOOLS, SETTINGS_FILE };
+         cleanBaseUrl, maskKey, resolvePaths, sessionsRoot, HOME, ROOT_DIR_TOOLS, SETTINGS_FILE };
 

@@ -169,8 +169,8 @@ def missing_settings(st):
 
 
 def read_settings_file():
-    """直接读 settings.json，不依赖服务是否在跑。"""
-    path = ROOT / "settings.json"
+    """直接读 settings.json，不依赖服务是否在跑。走统一入口 _SETTINGS_FILE。"""
+    path = _SETTINGS_FILE
     if not path.exists():
         return {}
     try:

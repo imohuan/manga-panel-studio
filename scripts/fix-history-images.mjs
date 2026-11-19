@@ -10,9 +10,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-const ROOT = 'I:/comic-canvas/sessions';
-const PY = 'I:/manga-image-translator/py310/python.exe';
-const CONVERT = 'I:/comic-canvas/server/compress_image.py';
+// 路径统一走 settings.json / 环境变量，与 server 同一来源。
+import { fileURLToPath } from 'node:url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO = path.resolve(__dirname, '..');
+function readCfg() {
+  try { return JSON.parse(fs.readFileSync(path.join(REPO, 'settings.json'), 'utf8')); } catch { return {}; }
+}
+const cfg = readCfg();
+const canvas = cfg.canvas || {};
+const DATA_HOME = process.env.STUDIO_DATA_DIR || canvas.dataDir
+  || path.join(process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '.', 'AppData', 'Local'), 'manga-panel-studio');
+const ROOT = DATA_HOME + '/sessions';
+const MT = process.env.MT_ROOT || (cfg.translator || {}).projectRoot || '';
+const PY = process.env.STUDIO_PYTHON || (MT ? path.join(MT, 'py310', 'python.exe') : 'python');
+const CONVERT = path.join(REPO, 'server', 'compress_image.py');
 
 const isJpeg = (f) => {
   const fd = fs.openSync(f, 'r');

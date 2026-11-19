@@ -5,11 +5,13 @@ import fs from 'node:fs';
 let toolCtx = null;
 export async function handleToolRoutes(req, res, p, url, ctx) {
   toolCtx = ctx;
+  // ROOT 可能是活的 getter（设置页改 dataDir 后热生效），统一在用时调用。
   const { body, send, loadSettings, saveSettings, publicView, mergeIncoming,
           openaiListModels, checkOpenaiModel, doubaoTts, translatorPing,
           loadDoubaoAuth, readCharactersRaw, normalizeCharacters, updateCharacter,
           charVoicesView, readAudioScripts, callDoubao, safeToolName,
           cleanBaseUrl, maskKey, ROOT, appendOp, saveAudio, sha1 } = ctx;
+  const rootNow = () => (typeof ROOT === 'function' ? ROOT() : ROOT);
   try {
     // ---------- 设置界面 ----------
     if (p === '/api/settings' && req.method === 'GET') {
@@ -130,7 +132,7 @@ export async function handleToolRoutes(req, res, p, url, ctx) {
       if (!['api_ref', 'final_ref'].includes(b.slot)) return send(res, 400, { ok: false, message: 'slot 必须是 api_ref 或 final_ref' });
       const ext = ['mp3', 'wav', 'ogg', 'opus', 'pcm'].includes(b.ext) ? b.ext : 'mp3';
       const fname = safeToolName(b.name) + '_' + b.slot + '.' + ext;
-      const voicesDir = path.join(ROOT, session, 'voices');
+    const voicesDir = path.join(rootNow(), session, 'voices');
       fs.mkdirSync(voicesDir, { recursive: true });
       fs.writeFileSync(path.join(voicesDir, fname), Buffer.from(b.dataBase64, 'base64'));
       const field = b.slot === 'api_ref' ? 'api_ref_audio' : 'final_ref_audio';
@@ -147,7 +149,7 @@ export async function handleToolRoutes(req, res, p, url, ctx) {
     const dlgVoicesApi = p.match(/^\/api\/session\/([^/]+)\/dialogue-audios$/);
     if (dlgVoicesApi && req.method === 'GET') {
       const session = decodeURIComponent(dlgVoicesApi[1]);
-      const dir = path.join(ROOT, session, 'voices');
+    const dir = path.join(rootNow(), session, 'voices');
       let files = [];
       try { files = (await fs.promises.readdir(dir)).filter((n) => /^dlg_/.test(n) && n.endsWith('.mp3')); }
       catch { /* 目录不存在 */ }
@@ -160,7 +162,7 @@ export async function handleToolRoutes(req, res, p, url, ctx) {
       if (!session || !b.name || !['voiceprint', 'dialogue'].includes(b.purpose)) {
         return send(res, 400, { ok: false, message: '缺少 session / name / purpose' });
       }
-      const voicesDir = path.join(ROOT, session, 'voices');
+    const voicesDir = path.join(rootNow(), session, 'voices');
       fs.mkdirSync(voicesDir, { recursive: true });
       const chars = normalizeCharacters(await readCharactersRaw(session));
       const c = chars.find((x) => x.name === b.name);
@@ -177,7 +179,7 @@ export async function handleToolRoutes(req, res, p, url, ctx) {
         const refFile = (c && (c.final_ref_audio || c.api_ref_audio)) || null;
         let refPath = null;
         if (refFile) {
-          const cand = path.join(ROOT, session, 'voices', refFile);
+    const cand = path.join(rootNow(), session, 'voices', refFile);
           try { await fs.promises.access(cand); refPath = cand; } catch { refPath = null; }
         }
         const tone = b.tone ? String(b.tone) : '';
@@ -256,7 +258,7 @@ export async function handleToolRoutes(req, res, p, url, ctx) {
     // voices 静态音频
     const vs = p.match(/^\/voices\/([^/]+)\/(.+)$/);
     if (vs && req.method === 'GET') {
-      const filePath = path.join(ROOT, decodeURIComponent(vs[1]), 'voices', path.basename(decodeURIComponent(vs[2])));
+    const filePath = path.join(rootNow(), decodeURIComponent(vs[1]), 'voices', path.basename(decodeURIComponent(vs[2])));
       const type = { '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.opus': 'audio/ogg' }[path.extname(filePath)] || 'application/octet-stream';
       if (fs.existsSync(filePath)) {
         res.writeHead(200, { 'Content-Type': type });
@@ -278,7 +280,7 @@ async function findRefPath(session, name) {
   const c = chars.find((x) => x.name === name);
   const refFile = c && (c.final_ref_audio || c.api_ref_audio);
   if (!refFile) return null;
-  const cand = path.join(toolCtx.ROOT, session, 'voices', refFile);
+    const cand = path.join(rootNow(), session, 'voices', refFile);
   try { await fs.promises.access(cand); return cand; } catch { return null; }
 }
 
