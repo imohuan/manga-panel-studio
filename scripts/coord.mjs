@@ -13,6 +13,7 @@
  *   node scripts/coord.mjs release public/canvas.js
  */
 import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -79,7 +80,9 @@ function describe(rel, rec) {
   const heldFor = minutes(now - rec.at);
   const idle = mt ? minutes(now - mt) : 0;
   const flags = [];
-  if (changed) flags.push('认领后文件被改过');
+  // 注意：认领人自己改文件也会让 hash 变化。这里只提示「和认领时不一样」，
+  // 真正判断是不是别人动的，靠动手前的 verify + 读最新代码。
+  if (changed) flags.push('和认领时不一样（自己刚改也算；动手前重新 claim 可刷新基线）');
   if (idle > STALE_MINUTES) flags.push(`已 ${idle} 分钟没动，可能没人管`);
   return [
     rel,
@@ -87,6 +90,36 @@ function describe(rel, rec) {
     `  已持有 ${heldFor} 分钟；文件最后修改 ${idle} 分钟前`,
     flags.length ? `  ⚠ ${flags.join('；')}` : '  ✓ 正常',
   ].join('\n');
+}
+
+// 服务在源码改动之前就启动了，说明它跑的还是旧代码 ——
+// 这是「我明明改了却没生效」的另一个常见原因，和互相覆盖一样坑人。
+const SERVER_FILES = [
+  { port: 7788, label: '画布服务 canvas', files: ['server/canvas.mjs', 'server/tool_routes.js', 'server/tools_helpers.js'] },
+  { port: 5009, label: '识别服务 ocr', files: ['server/ocr_service.py', 'server/mask_column_ocr.py'] },
+];
+function runtimeReport() {
+  const out = [];
+  for (const s of SERVER_FILES) {
+    let startedAt = null;
+    try {
+      const ps = `$c=Get-NetTCPConnection -LocalPort ${s.port} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if($c){$p=Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue; if($p){$p.StartTime.ToUniversalTime().ToString('o')}}`;
+      const txt = execFileSync('powershell', ['-NoProfile', '-Command', ps], { encoding: 'utf8' }).trim();
+      startedAt = txt ? Date.parse(txt) : null;
+    } catch { startedAt = null; }
+    const newest = s.files
+      .map((f) => ({ f, mt: mtimeOf(f) }))
+      .filter((x) => x.mt)
+      .sort((a, b) => b.mt - a.mt)[0];
+    let line = `${s.label}（端口 ${s.port}）`;
+    if (!startedAt) line += '\n  没在运行';
+    else if (newest && newest.mt > startedAt) {
+      line += `\n  启动于 ${new Date(startedAt).toLocaleTimeString()}，但 ${newest.f} 之后又改过`;
+      line += '\n  ⚠ 跑的是旧代码：重启后改动才会生效';
+    } else line += '\n  ✓ 已加载最新代码';
+    out.push(line);
+  }
+  return out;
 }
 
 if (cmd === 'status' || !cmd) {
@@ -97,7 +130,8 @@ if (cmd === 'status' || !cmd) {
     const rec = state.files[rel];
     console.log(rec ? `${rel}\n  使用者：${rec.owner}（${minutes(now - rec.at)} 分钟前认领）` : `${rel}\n  空闲`);
   }
-  console.log('');
+  console.log('\n服务是否加载了最新代码：\n');
+  for (const line of runtimeReport()) console.log(line + '\n');
   const others = Object.keys(state.files).filter((k) => !ALL.includes(k));
   if (others.length) console.log('旧记录：', others.join(', '));
   process.exit(0);

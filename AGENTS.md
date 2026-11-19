@@ -96,3 +96,16 @@ node scripts/coord.mjs release runtime:ocr
 - 端口 7788 / 5009 上已经有进程时，**先确认是谁在跑**，不要直接杀：
   `Get-NetTCPConnection -LocalPort 7788 -State Listen | Select OwningProcess`
 - 如果你发现端口被占，而自己没在认领状态里，说明是别人的实例，直接用它测试即可。
+
+## 8. 怎么判断「我改的到底生效没有」
+
+按这个顺序查，不要一上来就重写代码：
+
+1. 前端（`public/*`）：Ctrl+F5 硬刷新。看到的还是旧的，就用
+   `Invoke-WebRequest http://127.0.0.1:7788/` 看服务器返回的 HTML 里有没有你那段。
+   有 = 已经生效，是你没刷新；没有 = 文件没写进去或被覆盖，`git diff` 查。
+2. 后端 Node（`server/*.mjs`、`server/*.js`）：**必须重启** `node server/canvas.mjs`。
+   `node scripts/coord.mjs status` 最后一段会直接告诉你「跑的是旧代码」。
+3. Python 识别服务（`server/*.py`）：同样必须重启，并确认加载的是本项目文件，
+   不是 `I:\manga-image-translator` 下的同名旧文件。
+4. 代码在、服务也新，却仍然不对 → 这时才怀疑逻辑问题，用 systematic-debugging。
