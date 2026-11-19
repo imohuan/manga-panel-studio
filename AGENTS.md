@@ -109,3 +109,15 @@ node scripts/coord.mjs release runtime:ocr
 3. Python 识别服务（`server/*.py`）：同样必须重启，并确认加载的是本项目文件，
    不是 `I:\manga-image-translator` 下的同名旧文件。
 4. 代码在、服务也新，却仍然不对 → 这时才怀疑逻辑问题，用 systematic-debugging。
+
+## 9. 收尾前跑一次自检
+
+```powershell
+node scripts/health-check.mjs
+```
+
+它会检查页面里几个关键结构（面板顶部/底部固定、快捷键角标、多选样式、历史中间图、
+主画布）以及 `canvas.js` 的关键函数是否都还在，再确认两个服务是否正常。
+
+全部打勾才说明「没有谁的改动被覆盖掉」。有 ✗ 就先查 `git diff` 和
+`git log --oneline -5 -- <文件>`，找回来再说。
