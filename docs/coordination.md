@@ -43,8 +43,17 @@ node scripts/coord.mjs release public/canvas.js
 | 日期 | 任务 | 改了什么 | 验证 |
 | --- | --- | --- | --- |
 | 2026-11-19 | 协调 | 建立认领工具和本表，存快照 tag `coord-snapshot-20261119` | `node scripts/coord.mjs status` |
+| 2026-11-19 | 协调 | 发现右侧面板任务在 index.html 删掉了多选任务的 kbd.hk / sel-count 样式，已按原样恢复（2ea95ee） | 页面源码里三类选择器都在 |
 
 ## 已知问题
 
-- `public/canvas.js` 里 `queuePageDetect` 发给服务端的模式是 `detect`，
-  而服务端只认 `detect-page`，按 `I` 会走到错误的兜底分支。由多选框任务修。
+- ~~`queuePageDetect` 发送 `detect` 而非 `detect-page`~~：多选框任务已修。
+
+## 同一个文件里的分区（重要）
+
+`public/index.html` 是拼装出来的：服务端会把 `public/panel.html` 整段塞进
+`index.html` 的 `<!-- PANEL -->` 位置再返回。所以：
+
+- `index.html` 里的 `<style>` 是**多个对话共用**的，只许追加自己的几行，不许整段替换。
+- `panel.html` 里只改自己负责的那一段结构。
+- 改完刷新 `http://127.0.0.1:7788/`（Ctrl+F5）就能看到，不需要重启服务。
