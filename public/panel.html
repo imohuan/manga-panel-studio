@@ -137,13 +137,18 @@
         <!-- 顶部：固定在面板上，不跟列表滚走 -->
         <div class="detail-top">
           <div class="actions">
-            <kit-button size="sm" icon="crop_free" @click="queueJob(curPage.page, 'detect-page')">整页找框</kit-button>
+            <kit-button size="sm" icon="crop_free" @click="queueJob(curPage.page, 'detect-page')"
+              title="整页找框（快捷键 I）">整页找框</kit-button>
             <kit-button size="sm" icon="document_scanner"
               :disabled="!curPage.regions.length"
+              title="整页识别（快捷键 O）"
               @click="queueJob(curPage.page, 'ocr-page')">整页识别</kit-button>
             <kit-button size="sm" icon="select_all" variant="outlined"
-              :disabled="S.selBox < 0"
+              :disabled="selectedCount === 0"
+              title="框内文字（快捷键 P）"
               @click="queueBoxOcr()">框内文字</kit-button>
+            <span v-if="selectedCount > 1" class="sel-count"
+              title="Shift + 拖动可以一次选多个框">已选 {{ selectedCount }}</span>
           </div>
         </div>
 
