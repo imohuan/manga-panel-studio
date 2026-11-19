@@ -26,6 +26,8 @@ metadata:
 装好后用包自带的命令启动/检查服务：
 
     manga-panel-studio          # 启动画布服务（前台运行）
+    manga-panel-studio ocr      # 启动 Python OCR 服务（5009，后台）
+    manga-panel-studio start-all  # 两个都起（OCR 后台 + 画布前台）
     manga-panel-studio check    # 查 7788 / 5009 两个服务的状态
 
 判断方法：`manga-panel-studio check` 通了就直接用。
@@ -54,9 +56,10 @@ OCR 服务地址。
 
 退出码：0 = 配置都在；2 = 有缺项（已打开设置页）。
 
-识别服务 5009 只在要跑 OCR 时才需要，那时候没起再拉。
-Python 解释器从 ~/.manga-panel-studio/settings.json 的 translator.projectRoot 推导
-（在设置页里填 manga-image-translator 的目录），没装 MT 就先让用户装。
+识别服务 5009 只在要跑 OCR 时才需要，那时候没起就 `manga-panel-studio ocr` 拉起
+（Python 解释器自动从 ~/.manga-panel-studio/settings.json 的 translator.projectRoot
+推导；没填这个目录就先让用户在设置页里填 manga-image-translator 的位置，没装 MT
+就先让用户装）。
 
 刚启动要 20-40 秒加载模型。想看两个服务通不通，用 `python canvas_cli.py check`。
 
@@ -671,7 +674,8 @@ md 和 audio_scripts **都没有「骨架」这一步**。脚本能生成的东�
 - 检查图 q 只压底图，参考线/坐标文字始终清晰；scale=0.5 整页扫体积降 4 倍。
 - rect 填 10,10,10,10 这种 x2<=x1 的值会直接报错（不会静默返回整页）。
 - 检查图读坐标：刻度标注的就是原始像素值，不用自己换算；裁剪后左上角标 x/y 偏移。
-- OCR 服务刚启动 /health 可能 20-40 秒后才通，别重复启动。
+- OCR 服务刚启动 /health 可能 20-40 秒后才通，别重复启动
+  （`manga-panel-studio check` 探活，DOWN 就再等等）。
 - Windows 控制台先设 $env:PYTHONIOENCODING='utf-8' 再跑 CLI。
 - 不要直接修改 sessions/ 里的数据文件（一切写入走画布 HTTP 接口，才能留历史、
   触发前端刷新）；设置与音频页面已合并进主服务。
