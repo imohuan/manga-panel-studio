@@ -7,17 +7,48 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
-const ROOT_DIR_TOOLS = 'I:/comic-canvas';
-const ROOT = ROOT_DIR_TOOLS + '/sessions';
-const SETTINGS_FILE = path.join(ROOT_DIR_TOOLS, 'settings.json');
+// 路径与端口全部从 settings.json 读，不再写死盘符。
+// 读不到 settings.json 时用内置默认（用户数据目录），保证服务能起来。
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const HOME = process.env.STUDIO_DATA_DIR
+  || path.join(process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '.', 'AppData', 'Local'), 'manga-panel-studio');
+const ROOT_DIR_TOOLS = process.env.STUDIO_PROJECT_ROOT || path.resolve(__dirname, '..');
+const DEFAULT_SETTINGS_FILE = path.join(ROOT_DIR_TOOLS, 'settings.json');
+const SETTINGS_FILE = process.env.STUDIO_SETTINGS_FILE || DEFAULT_SETTINGS_FILE;
+const ROOT = HOME + '/sessions';
 const DOUBAO_URL = 'https://openspeech.bytedance.com/api/v3/tts/create';
 
 const DEFAULT_SETTINGS = {
   openai: { baseUrl: '', apiKey: '', model: '' },
   doubao: { apiKey: '', model: 'seed-audio-1.0', voice: '', referenceAudio: '' },
   translator: { baseUrl: 'http://127.0.0.1:5009', projectRoot: '' },
+  canvas: {
+    sessionsDir: '',     // 空 = %LOCALAPPDATA%/manga-panel-studio/sessions
+    dataDir: '',         // 空 = %LOCALAPPDATA%/manga-panel-studio
+    canvasBaseUrl: '',   // 空 = http://127.0.0.1:7788
+    ocrBaseUrl: '',      // 空 = http://127.0.0.1:5009
+    ffmpegPath: '',      // 空 = 用 PATH 里的 ffmpeg
+  },
 };
+
+function resolveCanvasCfg(raw) {
+  const c = (raw && raw.canvas) || {};
+  return {
+    dataDir: c.dataDir || HOME,
+    sessionsDir: c.sessionsDir || path.join(c.dataDir || HOME, 'sessions'),
+    canvasBaseUrl: c.canvasBaseUrl || 'http://127.0.0.1:7788',
+    ocrBaseUrl: c.ocrBaseUrl || 'http://127.0.0.1:5009',
+    ffmpegPath: c.ffmpegPath || '',
+  };
+}
+
+// 导出给 canvas.mjs 等模块使用（ROOT 随 settings 变，所以只导解析函数）
+function resolvePaths(raw) {
+  const cfg = resolveCanvasCfg(raw);
+  return { ROOT: cfg.sessionsDir, ...cfg };
+}
 
 const maskKey = (key) => {
   if (!key) return '';
@@ -324,5 +355,5 @@ export { loadSettings, saveSettings, publicView, mergeIncoming,
          openaiListModels, checkOpenaiModel, doubaoTts, translatorPing,
          loadDoubaoAuth, readCharactersRaw, normalizeCharacters, updateCharacter,
          charVoicesView, readAudioScripts, callDoubao, safeToolName, findRefPath,
-         cleanBaseUrl, maskKey };
+         cleanBaseUrl, maskKey, resolvePaths, HOME, ROOT_DIR_TOOLS, SETTINGS_FILE };
 

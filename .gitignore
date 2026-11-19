@@ -23,3 +23,13 @@ settings.json
 # 协作认领状态（本机临时状态，别提交）
 .coord/
 
+# 技能目录里的临时调试脚本（下划线开头的 py 一律不入库）
+skills/*/scripts/_*.py
+
+# npm 相关
+node_modules/
+package-lock.json
+
+# 用户数据目录（阶段 1b 后数据搬到用户目录，这里兜底防误提交）
+sessions/
+

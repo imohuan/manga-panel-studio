@@ -32,16 +32,32 @@ import { loadSettings, saveSettings, publicView, mergeIncoming,
          openaiListModels, checkOpenaiModel, doubaoTts, translatorPing,
          loadDoubaoAuth, readCharactersRaw, normalizeCharacters, updateCharacter,
          charVoicesView, readAudioScripts, callDoubao, safeToolName, findRefPath,
-         cleanBaseUrl, maskKey } from './tools_helpers.js';
+         cleanBaseUrl, maskKey, resolvePaths } from './tools_helpers.js';
 import { handleToolRoutes } from './tool_routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT_DIR = path.resolve(__dirname, '..');   // 项目根（I:/comic-canvas）
-const PORT = 7788;
-const ROOT = 'I:/comic-canvas/sessions';
-const OCR = 'http://127.0.0.1:5009';
-const PY = 'I:/manga-image-translator/py310/python.exe';
-const FFMPEG = 'C:/UserApp/Bin/ffmpeg.exe';
+const ROOT_DIR = path.resolve(__dirname, '..');   // 项目根（仓库所在目录）
+const PORT = 7788;                                 // 画布服务端口（画布地址 = settings.translator/canvas）
+// 路径与端口统一从 settings.json 读，不再写死盘符。
+// 优先级：环境变量 > settings.json > 内置默认。
+const SETTINGS0 = loadSettings();
+const canvasCfg = resolvePaths(SETTINGS0);
+const ROOT = canvasCfg.ROOT;                       // sessions 目录（默认 %LOCALAPPDATA%/manga-panel-studio/sessions）
+const OCR = process.env.STUDIO_OCR_BASE || canvasCfg.ocrBaseUrl;
+const FFMPEG = canvasCfg.ffmpegPath || 'ffmpeg';   // 空 = 用 PATH 里的 ffmpeg，失败自动兜底到 PIL
+// Python 解释器：从 settings.translator.projectRoot 推导（MT 目录里有 py310/venv 就用），
+// 找不到再回退 PATH 里的 python。
+function resolvePython(settings) {
+  const mtRoot = process.env.MT_ROOT || (settings.translator && settings.translator.projectRoot) || '';
+  const cands = mtRoot ? [
+    path.join(mtRoot, 'py310', 'python.exe'),
+    path.join(mtRoot, 'venv', 'Scripts', 'python.exe'),
+    path.join(mtRoot, '.venv', 'Scripts', 'python.exe'),
+  ] : [];
+  for (const c of cands) { try { fs.accessSync(c); return c; } catch {} }
+  return 'python';
+}
+const PY = process.env.STUDIO_PYTHON || resolvePython(SETTINGS0);
 // ---- 设置界面 + 音频管理（合并自 tools/settings 与 tools/audio 独立服务）----
 // helpers 见 tools_helpers.js
 fs.mkdirSync(ROOT, { recursive: true });
@@ -991,7 +1007,7 @@ http.createServer(async (req, res) => {
       openaiListModels, checkOpenaiModel, doubaoTts, translatorPing,
       readCharactersRaw, normalizeCharacters, updateCharacter,
       charVoicesView, readAudioScripts, callDoubao, safeToolName, findRefPath,
-      cleanBaseUrl, maskKey, loadDoubaoAuth, ROOT,
+    cleanBaseUrl, maskKey, loadDoubaoAuth, ROOT,
       // 音频生成也要留历史：和识别记录放在同一个 history/ops.json
       appendOp, saveAudio, sha1,
     })) return;

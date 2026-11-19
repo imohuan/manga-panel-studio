@@ -3,7 +3,11 @@ setlocal
 cd /d "%~dp0"
 title comic-canvas
 
-set "OCR_PY=I:\manga-image-translator\py310\python.exe"
+rem Python 解释器从 settings.json 的 translator.projectRoot 推导，
+rem 也可以用环境变量 MT_ROOT 或 STUDIO_PYTHON 覆盖。
+rem 没配置时 start.bat 提示去设置页填，画布仍会启动（OCR 功能不可用）。
+for /f "usebackq delims=" %%i in (`node -e "const fs=require('fs');try{const s=JSON.parse(fs.readFileSync('settings.json','utf8'));const mt=(process.env.MT_ROOT||s.translator.projectRoot||'');for(const p of [mt+'/py310/python.exe',mt+'/venv/Scripts/python.exe',mt+'/.venv/Scripts/python.exe']){if(p.startsWith('/')||p.startsWith('undefined'))continue;if(fs.existsSync(p)){console.log(p);process.exit(0)}}}catch(e){};console.log(process.env.STUDIO_PYTHON||'python')"`) do set "OCR_PY=%%i"
+
 set "CANVAS_URL=http://127.0.0.1:7788"
 
 echo ============================================

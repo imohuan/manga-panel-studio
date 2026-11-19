@@ -42,10 +42,40 @@ import requests
 
 DEFAULT_BASE = "http://127.0.0.1:7788"
 OCR_BASE = "http://127.0.0.1:5009"
-SESSIONS_ROOT = Path("I:/comic-canvas/sessions")
-ROOT = Path("I:/comic-canvas")
-OCR_PY = Path("I:/manga-image-translator/py310/python.exe")
-LOG_DIR = ROOT / ".tmp"
+# 路径与端口统一从 settings.json 读，不再写死盘符。
+# settings.json 位置：环境变量 STUDIO_SETTINGS_FILE > 项目根 settings.json。
+# 数据目录：环境变量 STUDIO_DATA_DIR > settings.canvas.dataDir > %LOCALAPPDATA%/manga-panel-studio
+_HERE = Path(__file__).resolve().parent
+_REPO = _HERE.parent.parent.parent          # skills/<name>/scripts/ 上三级 = 仓库根
+_SETTINGS_FILE = Path(os.environ.get("STUDIO_SETTINGS_FILE") or (_REPO / "settings.json"))
+
+def _read_cfg():
+    try:
+        return json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+_cfg = _read_cfg()
+_canvas = _cfg.get("canvas") or {}
+_home = Path(os.environ.get("STUDIO_DATA_DIR") or _canvas.get("dataDir")
+             or (Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "manga-panel-studio"))
+ROOT = _REPO
+SESSIONS_ROOT = Path(os.environ.get("STUDIO_SESSIONS_DIR") or _canvas.get("sessionsDir") or (_home / "sessions"))
+DEFAULT_BASE = os.environ.get("STUDIO_CANVAS_BASE") or (_canvas.get("canvasBaseUrl") or DEFAULT_BASE)
+OCR_BASE = os.environ.get("STUDIO_OCR_BASE") or (_canvas.get("ocrBaseUrl") or OCR_BASE)
+LOG_DIR = _home / "logs"
+
+# Python 解释器：settings.translator.projectRoot 推导，回退 PATH
+def _find_ocr_py():
+    mt = os.environ.get("MT_ROOT") or (_cfg.get("translator") or {}).get("projectRoot") or ""
+    if mt:
+        for sub in ("py310/python.exe", "venv/Scripts/python.exe", ".venv/Scripts/python.exe"):
+            c = Path(mt) / sub
+            if c.exists():
+                return c
+    return Path("python")
+
+OCR_PY = _find_ocr_py()
 
 VIEW_SYSTEM_PROMPT = (
     "你是漫画 OCR 校对助手。用户给你一张校对预览图（灰度底图+红色标记框+坐标刻度）"

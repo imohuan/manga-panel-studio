@@ -1,0 +1,24 @@
+{
+  "openai": {
+    "baseUrl": "http://127.0.0.1:3000/v1",
+    "apiKey": "",
+    "model": ""
+  },
+  "doubao": {
+    "apiKey": "",
+    "model": "seed-audio-1.0",
+    "voice": "",
+    "referenceAudio": ""
+  },
+  "translator": {
+    "baseUrl": "http://127.0.0.1:5009",
+    "projectRoot": ""
+  },
+  "canvas": {
+    "sessionsDir": "",
+    "dataDir": "",
+    "canvasBaseUrl": "",
+    "ocrBaseUrl": "",
+    "ffmpegPath": ""
+  }
+}

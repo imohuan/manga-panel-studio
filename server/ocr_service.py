@@ -33,9 +33,39 @@ from PIL import Image
 from pydantic import BaseModel
 import uvicorn
 
-# 算法依赖 manga-image-translator 的包路径（模型解析也依赖其 cwd）
-MT = r"I:\manga-image-translator"
+# 算法依赖 manga-image-translator 的包路径（模型解析也依赖其 cwd）。
+# 路径来源：环境变量 MT_ROOT > settings.json 的 translator.projectRoot。
+# 都没有时直接报错并给出安装指引，不猜默认值。
+import json
 import sys, os
+from pathlib import Path
+
+def _load_mt_root():
+    env = os.environ.get("MT_ROOT")
+    if env and Path(env).is_dir():
+        return Path(env)
+    here = Path(__file__).resolve().parent.parent
+    sf = here / "settings.json"
+    if sf.exists():
+        try:
+            root = (json.loads(sf.read_text(encoding="utf-8")).get("translator") or {}).get("projectRoot") or ""
+            if root and Path(root).is_dir():
+                return Path(root)
+        except Exception:
+            pass
+    return None
+
+_mt = _load_mt_root()
+if _mt is None:
+    raise SystemExit(
+        "未找到 manga-image-translator。\n"
+        "请二选一：\n"
+        "  1. 设置环境变量 MT_ROOT 指向 manga-image-translator 目录；\n"
+        "  2. 打开设置页（画布服务 7788/settings.html），在「路径与端口」里填 translator.projectRoot。\n"
+        "还没有安装？让 AI agent 按官方说明克隆安装："
+        "git clone https://github.com/zyddnys/manga-image-translator.git"
+    )
+MT = str(_mt)
 sys.path.insert(0, MT)
 os.chdir(MT)
 
