@@ -33,7 +33,16 @@ function resolvePython() {
   return 'python';
 }
 
-const LOG_DIR = path.join(process.env.STUDIO_DATA_DIR || path.join(os.homedir(), '.manga-panel-studio'), 'logs');
+const mtRoot = () => {
+  try {
+    const sf = process.env.STUDIO_SETTINGS_FILE
+      || path.join(process.env.STUDIO_DATA_DIR || path.join(os.homedir(), '.manga-panel-studio'), 'settings.json');
+    return (JSON.parse(fs.readFileSync(sf, 'utf8')).translator || {}).projectRoot || '';
+  } catch { return ''; }
+};
+
+function banner(tag) { console.log('────────── ' + tag + ' ──────────'); }
+
 
 // 启动 OCR 并等它真的起来：失败时把真实原因说清楚，不留给用户瞎猜。
 async function startOcr({ foreground = false } = {}) {
@@ -68,49 +77,61 @@ async function startOcr({ foreground = false } = {}) {
     return false;
   }
 
-  fs.mkdirSync(LOG_DIR, { recursive: true });
-  const logFile = path.join(LOG_DIR, 'ocr.log');
-  const logStream = fs.createWriteStream(logFile, { flags: 'a' });
-  console.log('OCR 服务启动中（' + py + '）');
-  console.log('  日志：' + logFile);
-  const args = [script, '--port', '5009', '--use-gpu'];
-  const child = spawn(py, args, {
-    cwd: ROOT_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true,
-  });
-  child.unref();
+  banner('manga-panel-studio');
+  console.log('[mps] OCR 服务启动中');
+  console.log('[mps]   解释器: ' + py);
+  console.log('[mps]   服务脚本: ' + script);
+  console.log('[mps]   OCR 依赖: manga-image-translator（' + (mtRoot() || '未配置，去设置页填') + '）');
+  const today = new Date();
+  const ymd = today.getFullYear() + String(today.getMonth()+1).padStart(2,'0') + String(today.getDate()).padStart(2,'0');
+  const ocrLog = path.join(process.env.STUDIO_DATA_DIR || path.join(os.homedir(), '.manga-panel-studio'), 'logs', 'ocr-service-' + ymd + '.log');
+  console.log('[mps]   OCR 日志文件: ' + ocrLog + '（每天一个新文件，保留 14 天）');
+  console.log('');
+  console.log('[mps] 下面是 OCR 子进程的原始输出（前缀 [ocr]），它的日志会实时显示在这里：');
+  console.log('');
+  let child = null;
+  try {
+    child = spawn(py, [script, '--port', '5009', '--use-gpu'], {
+      cwd: ROOT_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true, windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    });
+    child.unref();
+  } catch (e) {
+    console.log('启动失败：' + e.message);
+    return false;
+  }
 
-  // 同一份输出同时写日志文件和当前终端：终端能立刻看到成败，文件留底可查。
-  let sawOutput = false;
-  const tee = (chunk, stream) => {
-    sawOutput = true;
-    logStream.write(chunk);
-    stream.write(chunk);
-  };
-  child.stdout.on('data', (c) => tee(c, process.stdout));
-  child.stderr.on('data', (c) => tee(c, process.stderr));
-  child.on('error', (e) => {
-    console.log('启动 OCR 进程失败：' + e.message);
-    logStream.write('spawn error: ' + e.message + '\n');
-  });
-
-  // 4) 等 health 就绪（最多 60 秒，模型加载慢）；失败就读日志尾部给出真相。
-  for (let i = 0; i < 30; i++) {
-    await sleep(2000);
-    if (child.exitCode !== null) {
-      console.log('OCR 进程已退出（exit code ' + child.exitCode + '），日志最后几行：');
-      printTail(logFile, 12);
-      return false;
+  // 子进程输出不再转给终端：python 自己的 StreamHandler 已打印（带时间戳），
+  // 这里再打就重复了。stderr（堆栈等）仍然转发。
+  child.stderr && child.stderr.on('data', (buf) => {
+    for (const line of buf.toString().split(/\r?\n/)) {
+      if (line.trim()) process.stdout.write('[ocr-err] ' + line + '\n');
     }
+  });
+
+  console.log('  等待 5009 就绪（首次加载模型可能要 1 分钟）…');
+  const deadline = Date.now() + 90000;
+  while (Date.now() < deadline) {
+    await sleep(2000);
     const h = await get('http://127.0.0.1:5009/health');
     if (h.ok) {
-      console.log('OCR 服务已就绪：http://127.0.0.1:5009/health');
-      console.log('  首次识别会加载模型，前几页会慢一些。');
-      if (!sawOutput) console.log('  （本次没有新日志，服务可能已在别处启动）');
+      console.log('');
+      banner('manga-panel-studio');
+      console.log('[mps] OCR 服务已就绪: http://127.0.0.1:5009/health');
+      console.log('[mps] 服务在后台常驻运行（关掉这个终端也不影响）。');
       return true;
     }
+    if (child && child.exitCode !== null && child.exitCode !== 0) {
+      console.log('');
+      banner('manga-panel-studio');
+      console.log('[mps] OCR 启动失败（exit ' + child.exitCode + '）');
+      console.log('[mps] 失败原因见上面 [ocr] 行，完整日志: ' + ocrLog);
+      return false;
+    }
   }
-  console.log('等了 60 秒还没就绪，可能还在加载模型。日志：' + logFile);
-  printTail(logFile, 8);
+  banner('manga-panel-studio');
+  console.log('[mps] 90 秒还没就绪，可能还在加载模型，也可能已经失败。');
+  console.log('[mps] 上面 [ocr] 行就是当时的输出。');
   return false;
 }
 
@@ -127,12 +148,6 @@ function isPortListening(port) {
   });
 }
 
-function printTail(file, n) {
-  try {
-    const lines = fs.readFileSync(file, 'utf8').trimEnd().split(/\r?\n/);
-    for (const l of lines.slice(-n)) console.log('  | ' + l.slice(0, 200));
-  } catch {}
-}
 
 function get(url) {
   return new Promise((resolve) => {
@@ -171,6 +186,6 @@ if (cmd === 'start') {
       canvas.on('exit', (code) => process.exit(code ?? 0));
     })();
   } else {
-  console.log('manga-panel-studio <command>\n\n  start      启动画布服务（默认，前台）\n  check      检查两个服务状态\n  ocr        启动 OCR 服务（5009，失败会说明原因）\n  start-all  同时启动画布 + OCR');
+  console.log('manga-panel-studio <command>\n\n  start      启动画布服务（默认，前台）\n  check      检查两个服务状态\n  ocr        启动 OCR 服务（5009，输出直接打到终端）\n  start-all  同时启动画布 + OCR');
   }
 }

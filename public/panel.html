@@ -179,6 +179,18 @@
             </details>
           </div>
           <!-- 手动改框不存图：用页面原图 + 当时的框坐标现场画 -->
+          <!-- 流水线（CLI ocr / next）：排队页清单 / 取页标记 -->
+          <div v-if="String(o.kind).startsWith('pipeline-')"
+            style="margin-top:8px;border-top:1px dashed #eee;padding-top:7px">
+            <div style="font-size:10px;color:#888">
+              {{ o.kind === 'pipeline-ocr' ? '本轮排队页' : '流水线取页' }}
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">
+              <span v-for="pg in (o.data.pages || [])" :key="pg"
+                style="font:600 9.5px 'JetBrains Mono',monospace;color:#2f5fd0;background:#eef3ff;border-radius:3px;padding:1px 5px">{{ pg }}</span>
+            </div>
+          </div>
+
           <!-- 静态检查（check-audio / check-characters）：结论 + 明细 -->
           <div v-if="String(o.kind).startsWith('check-')"
             style="margin-top:8px;border-top:1px dashed #eee;padding-top:7px">

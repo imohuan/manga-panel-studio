@@ -272,6 +272,16 @@ def normalize_page(p):
     return s.zfill(5) if s.isdigit() else s
 
 
+def record_pipeline(base, session, kind, page=None, pages=None, remaining=None):
+    """把流水线动作（排队 / 取页）写进画布历史，UI 历史面板可见。
+    失败不阻塞主流程：历史只是可视化，记录不上就算了。"""
+    try:
+        api(base, "POST", f"/api/session/{session}/pipeline",
+            json={"kind": kind, "page": page, "pages": pages, "remaining": remaining})
+    except Exception:
+        pass
+
+
 def cmd_list(args):
     d = api(args.base, "GET", f"/api/session/{args.session}")
     for p in d["pages"]:
@@ -325,6 +335,7 @@ def cmd_ocr(args):
         job = api(args.base, "POST", f"/api/session/{args.session}/job",
                   json={"page": pg, "mode": "ocr-page"})
         print(f"  排队 {pg}: {job.get('id')}")
+    record_pipeline(args.base, args.session, "pipeline-ocr", pages=pages)
     print("")
     print("已排入 %d 页，后台识别中。不要在这里干等。" % len(pages))
     print("  打开 http://127.0.0.1:7788/?s=%s 可以实时看进度。" % args.session)
@@ -368,6 +379,8 @@ def cmd_next(args):
               + (", 识别中 %d" % len(running) if running else "")
               + (", 未识别 %d" % len(left) if left else "") + "）")
         raise SystemExit(1)
+    record_pipeline(args.base, args.session, "pipeline-next", page=ready[0],
+                    remaining=len(ready) - 1)
     print(ready[0])
 
 

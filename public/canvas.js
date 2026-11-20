@@ -60,6 +60,8 @@ createApp({
       'audio-vp': 'graphic_eq', 'audio-dlg': 'record_voice_over',
       'ai-check': 'visibility',
       'check-audio': 'fact_check', 'check-characters': 'badge' };
+    ICON['pipeline-ocr'] = 'low_priority';
+    ICON['pipeline-next'] = 'page_info';
     const MODE_LABEL = {
       'detect-page': '整页找框', 'detect-region': '区域找框',
       'ocr-page': '整页识别', 'ocr-region': '区域识别', 'ocr-boxes': '框内文字',

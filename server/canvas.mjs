@@ -868,6 +868,31 @@ http.createServer(async (req, res) => {
     }
 
     // 分镜 md：右侧面板「分镜」tab 用。只读，按页返回原文，
+    // 流水线（CLI ocr / next）：把「排队了哪些页」「取走了哪页」写进历史，
+    // 让 agent 的流水线节奏在画布上可追溯。不涉及图片。
+    m = p.match(/^\/api\/session\/([^/]+)\/pipeline$/);
+    if (m && req.method === 'POST') {
+      const d = await body(req);
+      const kind = String(d.kind || '');
+      if (!['pipeline-ocr', 'pipeline-next'].includes(kind)) {
+        return send(res, 400, { error: 'kind 只能是 pipeline-ocr / pipeline-next' });
+      }
+      const op = appendOp(m[1], {
+        kind, by: d.by || 'cli', page: d.page || null,
+        summary: kind === 'pipeline-ocr'
+          ? 'OCR 排队 ' + (Array.isArray(d.pages) ? d.pages.length : 0) + ' 页（后台识别中）'
+          : '流水线取页 -> ' + (d.page || '?') + '（转校验/写 md）',
+        input: { image: null, box: null, scope: 'pipeline' },
+        output: { image: null, count: Array.isArray(d.pages) ? d.pages.length : null },
+        data: {
+          scope: 'pipeline',
+          pages: Array.isArray(d.pages) ? d.pages : (d.page ? [d.page] : []),
+          remaining: d.remaining ?? null,
+        },
+      });
+      return send(res, 200, { ok: true, opId: op.id });
+    }
+
     // 静态审计（CLI check-audio / check-characters）：把检查结论留进历史，
     // 让「改完有没有检查、检查结果是什么」在画布上可追溯。
     m = p.match(/^\/api\/session\/([^/]+)\/audit$/);

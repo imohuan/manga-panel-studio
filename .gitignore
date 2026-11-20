@@ -34,4 +34,5 @@ package-lock.json
 # 用户数据目录（阶段 1b 后数据搬到用户目录，这里兜底防误提交）
 sessions/
 
-`n# npm 凭据（本地临时，发布后删除）`n.npmrc
+# npm 凭据（本地临时，发布后删除）
+.npmrc

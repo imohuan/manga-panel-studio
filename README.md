@@ -18,6 +18,7 @@ AI 通过 HTTP 接口改框，前端用 SSE 实时刷新。一张漫画从「识
 | 整页 / 区域 / 框内识别 | 三种粒度走同一个任务队列，失败可重试 |
 | 逐页校对 | 红色标记框 + 坐标刻度，AI 读图判断漏框、噪声框、空框 |
 | 历史与回滚 | 每次改框、识别、配音都留记录，带中间图，可还原到那一步 |
+| 流水线可视化 | CLI 的 OCR 排队、取页动作也写入历史，右侧面板实时显示进度 |
 | 分镜稿 | 读 `sessions/<画布>/NNNNN.md`，渲染成镜头卡片与台词表 |
 | 配音脚本 | AI 按分镜写 `audio_scripts.json`，含情绪、配乐、音效提示 |
 | 声纹与对话音频 | 豆包 `seed-audio-1.0` 生成角色声纹和每句对话，结果写回历史 |
@@ -139,6 +140,7 @@ GET    /api/session/:name                     画布全部页与框
 GET    /api/session/:name/page/:page          单页框数据
 PUT    /api/session/:name/page/:page          覆盖该页框（自动写历史）
 POST   /api/session/:name/job                 投递识别任务
+POST   /api/session/:name/pipeline            记录流水线动作（排队 / 取页）
 GET    /api/jobs                              任务队列状态
 GET    /events                                SSE：画布变动实时推送
 ```
@@ -146,6 +148,10 @@ GET    /events                                SSE：画布变动实时推送
 配套的命令行工具在 `skills/manga-panel-studio/scripts/canvas_cli.py`，
 封装了建画布、上传、识别、改框、校验、配音等流程。它只通过上面的 HTTP 接口写数据，
 不直接改 `sessions/` 里的 JSON，保证历史记录和前端刷新不会漏。
+
+其中 `ocr` 排队和 `next` 取页这两个流水线动作会通过 `/pipeline` 接口写进历史，
+在右侧「历史」面板里可以看到 `OCR 排队 N 页` 和 `流水线取页 -> 00001` 这样的记录。
+想给别的命令也加这类可视化，照着 [docs/pipeline-history.md](docs/pipeline-history.md) 做。
 
 ## 技能与应用的分工
 
@@ -179,3 +185,4 @@ settings.json               模型地址、密钥、豆包配置（已被 .gitig
 - [安装规范调研](docs/research-skill-install.md)
 - [多人协作规则](docs/coordination.md)
 - [UI 组件说明](docs/uikit_readme.md)
+- [把 CLI 动作写进历史](docs/pipeline-history.md)
