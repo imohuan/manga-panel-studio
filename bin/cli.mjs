@@ -70,14 +70,28 @@ async function startOcr({ foreground = false } = {}) {
 
   fs.mkdirSync(LOG_DIR, { recursive: true });
   const logFile = path.join(LOG_DIR, 'ocr.log');
-  const out = fs.openSync(logFile, 'a');
+  const logStream = fs.createWriteStream(logFile, { flags: 'a' });
   console.log('OCR 服务启动中（' + py + '）');
   console.log('  日志：' + logFile);
   const args = [script, '--port', '5009', '--use-gpu'];
   const child = spawn(py, args, {
-    cwd: ROOT_DIR, stdio: ['ignore', out, out], detached: true,
+    cwd: ROOT_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true,
   });
   child.unref();
+
+  // 同一份输出同时写日志文件和当前终端：终端能立刻看到成败，文件留底可查。
+  let sawOutput = false;
+  const tee = (chunk, stream) => {
+    sawOutput = true;
+    logStream.write(chunk);
+    stream.write(chunk);
+  };
+  child.stdout.on('data', (c) => tee(c, process.stdout));
+  child.stderr.on('data', (c) => tee(c, process.stderr));
+  child.on('error', (e) => {
+    console.log('启动 OCR 进程失败：' + e.message);
+    logStream.write('spawn error: ' + e.message + '\n');
+  });
 
   // 4) 等 health 就绪（最多 60 秒，模型加载慢）；失败就读日志尾部给出真相。
   for (let i = 0; i < 30; i++) {
@@ -91,6 +105,7 @@ async function startOcr({ foreground = false } = {}) {
     if (h.ok) {
       console.log('OCR 服务已就绪：http://127.0.0.1:5009/health');
       console.log('  首次识别会加载模型，前几页会慢一些。');
+      if (!sawOutput) console.log('  （本次没有新日志，服务可能已在别处启动）');
       return true;
     }
   }
