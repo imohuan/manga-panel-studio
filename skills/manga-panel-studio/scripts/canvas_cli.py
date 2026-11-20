@@ -10,6 +10,8 @@
     show   <会话> <页>                         打印该页所有框（#编号 坐标 文字）
     init   <会话> <图片...>                    新建会话（文件夹只放图片）
     ocr    <会话> [--pages NNNNN ...]          整页识别（走画布任务队列）
+    plan   <会话>                              开工计划：页数/目录/实时地址/步骤
+    next   <会话>                              流水线取页：最早一页待处理的页号
     add    <会话> <页> x1 y1 x2 y2 文字        新增框
     rm     <会话> <页> <编号>                  删除框
     voices <会话>                              查看/初始化会话角色声纹状态
@@ -339,16 +341,41 @@ def cmd_ocr(args):
     print("")
     print("已排入 %d 页，后台识别中。不要在这里干等。" % len(pages))
     print("  打开 http://127.0.0.1:7788/?s=%s 可以实时看进度。" % args.session)
-    if getattr(args, "wait", False):
-        done = wait_jobs(args.base, pages)
-        for j in done:
-            r = j.get("result") or {}
-            print(f"  {j.get('page')} {j.get('status')} {r.get('count','')} 框 {j.get('error','')}")
-        for pg in pages:
-            p = get_page(args.base, args.session, pg)
-            print(f"  {pg}: {len(p['regions'])} 框")
-    else:
-        print("  页一好就处理下一页：python canvas_cli.py next %s" % args.session)
+    print("  下一步：python canvas_cli.py next %s（每页一好就取走处理）" % args.session)
+
+
+def cmd_plan(args):
+    """开工计划：一次打印会话、页数、数据目录、实时地址、步骤和节奏。
+    agent 把这段直接转给用户，就不会漏掉进度网址。"""
+    sdir = SESSIONS_ROOT / args.session
+    if not sdir.exists():
+        raise SystemExit("会话不存在: %s\n先 init 建会话，或检查会话名有没有写错" % sdir)
+    pages = sorted(p.stem for p in sdir.iterdir()
+                   if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+                   and not p.name.startswith("."))
+    total = len(pages)
+    with_boxes = 0
+    done_md = 0
+    for pg in pages:
+        try:
+            meta = json.loads((sdir / (pg + ".json")).read_text(encoding="utf-8"))
+            if meta.get("regions"):
+                with_boxes += 1
+        except Exception:
+            pass
+        if (sdir / (pg + ".md")).exists():
+            done_md += 1
+    print("会话：%s" % args.session)
+    print("页数：%d 页（已出框 %d，已写 md %d）" % (total, with_boxes, done_md))
+    print("数据目录：%s" % sdir)
+    print("实时地址：%s/?s=%s" % (args.base.rstrip("/"), args.session))
+    print("")
+    print("流程：")
+    print("  1. ocr 排队（一次全排，立刻返回，不等识别完成）")
+    print("  2. next 逐页取 → 校验修框 → 写 md + audio_scripts")
+    print("  3. 全部做完再跑 check-characters / check-audio 自检")
+    print("")
+    print("节奏：每页约 20-40 秒，边做边报「已完成 N/%d」。" % total)
 
 
 def cmd_next(args):
@@ -1220,11 +1247,13 @@ def build_parser():
     s = sub.add_parser("show"); s.add_argument("session"); s.add_argument("page"); s.set_defaults(func=cmd_show)
     s = sub.add_parser("init"); s.add_argument("session"); s.add_argument("images", nargs="+"); s.set_defaults(func=cmd_init)
     s = sub.add_parser("ocr"); s.add_argument("session"); s.add_argument("--pages", nargs="*")
-    s.add_argument("--wait", action="store_true",
-                   help="等到全部页识别完（默认只排队后立即返回）")
+    # 刻意不提供 --wait：等待整本 OCR 会让人干等十几分钟且零产出。
+    # 正确用法是排队后立刻用 next 逐页往下做。
     s.set_defaults(func=cmd_ocr)
     s = sub.add_parser("next", help="流水线取页：取最早一页已 OCR 完但未写 md 的页")
     s.add_argument("session"); s.set_defaults(func=cmd_next)
+    s = sub.add_parser("plan", help="开工计划：打印页数、数据目录、实时地址和步骤")
+    s.add_argument("session"); s.set_defaults(func=cmd_plan)
     s = sub.add_parser("add"); s.add_argument("session"); s.add_argument("page")
     s.add_argument("box", nargs=4, type=int); s.add_argument("text"); s.set_defaults(func=cmd_add)
     s = sub.add_parser("rm"); s.add_argument("session"); s.add_argument("page")
@@ -1253,6 +1282,13 @@ def build_parser():
 
 
 if __name__ == "__main__":
+    # 有人（通常是 AI）爱加 --wait 干等整本识别。这个参数已经删了，
+    # 直接说清楚怎么改，而不是丢一句 unrecognized arguments。
+    if "--wait" in sys.argv[1:]:
+        print("ocr 没有 --wait 参数，也不会等你等到全部识别完。")
+        print("正确做法：先 python canvas_cli.py ocr <会话> 排队，")
+        print("然后用 python canvas_cli.py next <会话> 一页一页取着做。")
+        raise SystemExit(2)
     a = build_parser().parse_args()
     a.func(a)
 

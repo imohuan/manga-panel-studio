@@ -137,6 +137,20 @@ async function startOcr({ foreground = false } = {}) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// 启动时把地址、数据目录、下一步说清楚，省得用户问「然后呢」。
+function printStartInfo() {
+  banner('manga-panel-studio');
+  console.log('画布地址: http://127.0.0.1:7788');
+  console.log('数据目录: ' + path.join(process.env.STUDIO_DATA_DIR || path.join(os.homedir(), '.manga-panel-studio')));
+  console.log('会话目录: ' + path.join(process.env.STUDIO_DATA_DIR || path.join(os.homedir(), '.manga-panel-studio'), 'sessions'));
+  console.log('');
+  console.log('用起来分三步:');
+  console.log('  1. 浏览器打开 http://127.0.0.1:7788/settings.html 填 API Key');
+  console.log('  2. 把漫画图片放进会话目录，或用画布里的「导入图片」');
+  console.log('  3. 另开一个终端跑 manga-panel-studio ocr 启动识别服务（5009）');
+  console.log('');
+}
+
 function isPortListening(port) {
   return new Promise((resolve) => {
     const s = new net.Socket();
@@ -160,7 +174,7 @@ function get(url) {
 }
 
 if (cmd === 'start') {
-  console.log('manga-panel-studio starting...');
+  printStartInfo();
   const child = spawn(process.execPath, [path.join(ROOT_DIR, 'server', 'canvas.mjs')], {
     cwd: ROOT_DIR, stdio: 'inherit',
   });
@@ -179,9 +193,9 @@ if (cmd === 'start') {
   if (cmd === 'ocr') {
     startOcr().then((ok) => process.exit(ok ? 0 : 1));
   } else if (cmd === 'start-all') {
-    console.log('启动画布（7788）+ OCR（5009）…');
     (async () => {
       await startOcr();
+      printStartInfo();
       const canvas = spawn(process.execPath, [path.join(ROOT_DIR, 'server', 'canvas.mjs')], { cwd: ROOT_DIR, stdio: 'inherit' });
       canvas.on('exit', (code) => process.exit(code ?? 0));
     })();

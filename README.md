@@ -81,8 +81,9 @@ cd manga-panel-studio
 npm install
 ```
 
-`start.bat` 会自动从 `~/.manga-panel-studio/settings.json` 的 `translator.projectRoot`
-推导 Python 路径，然后同时拉起两个服务：
+双击 `start.bat` 等价于 `node bin/cli.mjs start-all`：它会从
+`~/.manga-panel-studio/settings.json` 的 `translator.projectRoot` 推导 Python 路径，
+打印画布地址和数据目录，然后同时拉起两个服务：
 
 ```text
 画布服务   node server/canvas.mjs                  http://127.0.0.1:7788
