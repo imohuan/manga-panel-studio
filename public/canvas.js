@@ -17,19 +17,33 @@ createApp({
     });
     // 左上角画布下拉：kit-select 的 options 需要 {label, value}
     const sessionOptions = computed(() => S.sessions.map((s) => ({ label: s, value: s })));
-    // 正在识别的框：key = 页码:框坐标，值是任务 id。画布和区域列表都靠它显示加载状态
+    // 加载标记全部带上「画布（工作区）名」做前缀：key = 画布\u0000页码[:框坐标]。
+    // 任务队列是全局的，但转圈只能显示在任务所属的画布上，否则 A 画布的任务
+    // 会让切过去的 B 画布也一直转圈。
+    const wsKey = (session, k) => session + '\u0000' + k;
+    // 正在识别的框：key = 画布\u0000页码:框坐标，值是任务 id。画布和区域列表都靠它显示加载状态
     const pending = reactive(new Map());
-    // 正在处理的整页任务：key = page:页码（整页找框/整页识别/区域找框/区域识别）
+    // 正在处理的整页任务：key = 画布\u0000page:页码（整页找框/整页识别/区域找框/区域识别）
     const pageBusy = reactive(new Map());
-    // 正在处理的「区域」任务：key = 页码，value = { box, mode }。只在画出来的那块区域里显示
+    // 正在处理的「区域」任务：key = 画布\u0000页码，value = { box, mode }。只在画出来的那块区域里显示
     const regionBusy = reactive(new Map());
     // 动画统一按「真实时间」走，不按帧计数——否则容器大小不同速度就不同
     let nowSec = 0;                      // 由 rAF 更新的秒数
     let animT0 = 0;
-    const boxKey = (page, box) => page + ':' + box.map((v) => Math.round(Number(v))).join(',');
+    const pageKey = (page, session = S.session) => wsKey(session, 'page:' + page);
+    const regionKey = (page, session = S.session) => wsKey(session, String(page));
+    const boxKey = (page, box, session = S.session) =>
+      wsKey(session, page + ':' + box.map((v) => Math.round(Number(v))).join(','));
     const isPending = (page, box) => pending.has(boxKey(page, box));
-    const pageIsBusy = (page) => pageBusy.has('page:' + page);
-    const pageBusyMode = (page) => pageBusy.get('page:' + page)?.mode || '';
+    const pageIsBusy = (page) => pageBusy.has(pageKey(page));
+    const pageBusyMode = (page) => pageBusy.get(pageKey(page))?.mode || '';
+    // 只有当前画布还有加载标记时才跑动画；别的画布的任务不该让这里一直重画
+    const busyHere = () => {
+      const pre = S.session + '\u0000';
+      return [...pending.keys()].some((k) => k.startsWith(pre))
+        || [...pageBusy.keys()].some((k) => k.startsWith(pre))
+        || [...regionBusy.keys()].some((k) => k.startsWith(pre));
+    };
 
     const dirty = reactive(new Set());
     const sseOn = ref(false);
@@ -168,7 +182,7 @@ function openToolDialog(kind) {
         }
 
         if (S.scale < 0.1) continue;
-        const busy = pageBusy.get('page:' + p.page);
+        const busy = pageBusy.get(pageKey(p.page));
         p.regions.forEach((r, ri) => {
           const [x1, y1, x2, y2] = r.box;
           const selected = on && (S.selBox === ri || S.selExtra.includes(ri)
@@ -391,7 +405,7 @@ function openToolDialog(kind) {
         }
 
         // 区域任务（按 E 画框）：微光扫过（参考 02），只作用在这块区域
-        const rb = regionBusy.get(p.page);
+        const rb = regionBusy.get(regionKey(p.page));
         if (rb && Array.isArray(rb.box)) {
           const [rx1, ry1, rx2, ry2] = rb.box;
           const bx2 = p.x + rx1, by2 = p.y + ry1;
@@ -812,7 +826,7 @@ function openToolDialog(kind) {
         // 等后台成功并合并好数据再刷新；否则失败时会把框白白删掉。
         const prev = p.regions.length;
         // 只在画出来的这块区域里显示加载，不动整页
-        regionBusy.set(p.page, { box, mode: 'detect-region' });
+        regionBusy.set(regionKey(p.page), { box, mode: 'detect-region', session: S.session });
         draw();
         try {
           const rec = await fetch(`/api/session/${encodeURIComponent(S.session)}/job`, {
@@ -823,7 +837,7 @@ function openToolDialog(kind) {
           if (prev !== p.regions.length) draw();
           return rec;
         } catch {
-          regionBusy.delete(p.page);
+          regionBusy.delete(regionKey(p.page));
           notify.error('提交失败');
           draw();
         }
@@ -1147,6 +1161,8 @@ function openToolDialog(kind) {
         p.img = im;
       }
       await loadHistory();
+      // 任务队列是全局的，切画布后要重新对一遍：新画布自己的任务才亮转圈
+      await loadJobs();
     }
     async function createSession() {
       const name = newName.value.trim();
@@ -1280,18 +1296,20 @@ function openToolDialog(kind) {
       draw();
     }
     async function queueJob(page, mode = 'ocr-page', extra = {}) {
+      // 记住提交时的画布：请求途中切走，标记也只会留在原来的画布上
+      const session = S.session;
       // 区域任务只在那块区域显示；整页任务才给整页遮罩
       const isRegionJob = mode === 'detect-region' || mode === 'ocr-region';
-      if (isRegionJob && extra.box) regionBusy.set(page, { box: extra.box, mode });
-      else pageBusy.set('page:' + page, { mode });
+      if (isRegionJob && extra.box) regionBusy.set(regionKey(page, session), { box: extra.box, mode, session });
+      else pageBusy.set(pageKey(page, session), { mode, session });
       draw();
-      const r = await fetch(`/api/session/${encodeURIComponent(S.session)}/job`, {
+      const r = await fetch(`/api/session/${encodeURIComponent(session)}/job`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ page, mode, ...extra }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || j.error) {
-        if (isRegionJob) regionBusy.delete(page); else pageBusy.delete('page:' + page);
+        if (isRegionJob) regionBusy.delete(regionKey(page, session)); else pageBusy.delete(pageKey(page, session));
         notify.error(j.error || '提交失败');
         draw();
         return j;
@@ -1305,13 +1323,14 @@ function openToolDialog(kind) {
       const p = curPage.value;
       const sel = selectedBoxes();
       if (!p || !sel.length) return;
+      const session = S.session;
       const boxes = sel.map((x) => x.box.box);
-      const keys = boxes.map((b) => boxKey(p.page, b));
+      const keys = boxes.map((b) => boxKey(p.page, b, session));
       // 立刻给这些框打上加载标记：画布上转圈、右侧列表也转圈
       keys.forEach((k) => pending.set(k, 'local'));
       draw();
       try {
-        const r = await fetch(`/api/session/${encodeURIComponent(S.session)}/job`, {
+        const r = await fetch(`/api/session/${encodeURIComponent(session)}/job`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ page: p.page, mode: 'ocr-boxes', boxes }),
         });
@@ -1361,16 +1380,17 @@ function openToolDialog(kind) {
       await loadHistory();
     }
     async function queueAll(mode = 'ocr') {
+      const session = S.session;
       // 所有页先亮起加载态，SSE 回来的任务会接上
       const m = mode === 'detect' ? 'detect-page' : 'ocr-page';
-      for (const pg of S.pages) pageBusy.set('page:' + pg.page, { mode: m });
+      for (const pg of S.pages) pageBusy.set(pageKey(pg.page, session), { mode: m, session });
       draw();
-      const r = await fetch(`/api/session/${encodeURIComponent(S.session)}/jobs`, {
+      const r = await fetch(`/api/session/${encodeURIComponent(session)}/jobs`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pages: S.pages.map((p) => p.page), mode }),
       });
       if (!r.ok) {
-        for (const pg of S.pages) pageBusy.delete('page:' + pg.page);
+        for (const pg of S.pages) pageBusy.delete(pageKey(pg.page, session));
         notify.error('提交失败');
         draw();
         return;
@@ -1530,8 +1550,13 @@ function openToolDialog(kind) {
       }
     }
 
+    // 任务队列是全局的，但每条任务都属于某个画布。面板和底部状态只看当前画布，
+    // 别的画布的任务单独显示一个数字，避免把别人的排队数算到这一页上。
+    const wsJobs = computed(() => jobs.value.filter((j) => j.session === S.session));
+    const otherActive = computed(() => jobs.value.filter((j) => j.session !== S.session
+      && ['queued', 'running', 'paused'].includes(j.status)));
     const jobStat = computed(() => {
-      const last = jobs.value.slice(-80);
+      const last = wsJobs.value.slice(-80);
       return {
         queued: last.filter((j) => j.status === 'queued').length,
         running: last.filter((j) => j.status === 'running').length,
@@ -1543,9 +1568,10 @@ function openToolDialog(kind) {
 
     // 任务列表：运行中 → 排队 → 暂停 → 其他，新的在前
     const RANK = { running: 0, queued: 1, paused: 2, error: 3, done: 4 };
+    // 列表本身是全局的：所有画布的任务都能看到，行上标出它属于哪个画布
     const sortedJobs = computed(() => [...jobs.value]
       .sort((a, b) => (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9) || (b.ts < a.ts ? -1 : 1)));
-    const activeJobs = computed(() => jobs.value.filter((j) => ['queued', 'running', 'paused'].includes(j.status)));
+    const activeJobs = computed(() => wsJobs.value.filter((j) => ['queued', 'running', 'paused'].includes(j.status)));
 
     async function jobAction(id, act) {
       const base = act === 'remove' ? 'DELETE' : 'POST';
@@ -1563,19 +1589,19 @@ function openToolDialog(kind) {
     const removeJob = (id) => jobAction(id, 'remove');
 
     async function pauseAll() {
-      const list = jobs.value.filter((j) => j.status === 'queued');
+      const list = wsJobs.value.filter((j) => j.status === 'queued');
       for (const j of list) await fetch(`/api/jobs/${j.id}/pause`, { method: 'POST' });
       notify.success(`已暂停 ${list.length} 个`);
       await loadJobs();
     }
     async function resumeAll() {
-      const list = jobs.value.filter((j) => j.status === 'paused');
+      const list = wsJobs.value.filter((j) => j.status === 'paused');
       for (const j of list) await fetch(`/api/jobs/${j.id}/resume`, { method: 'POST' });
       notify.success(`已恢复 ${list.length} 个`);
       await loadJobs();
     }
     async function clearFinished() {
-      const list = jobs.value.filter((j) => ['done', 'error'].includes(j.status));
+      const list = wsJobs.value.filter((j) => ['done', 'error'].includes(j.status));
       for (const j of list) await fetch(`/api/jobs/${j.id}`, { method: 'DELETE' });
       notify.success(`已清理 ${list.length} 条`);
       await loadJobs();
@@ -1584,31 +1610,40 @@ function openToolDialog(kind) {
     function applyJob(j) {
       const i = jobs.value.findIndex((x) => x.id === j.id);
       if (i >= 0) jobs.value[i] = j; else jobs.value.push(j);
-      const p = S.pages.find((x) => x.page === j.page);
+      // 任务队列是全局的：转圈标记按任务自己的画布记录，页面数据和重画只动当前画布
+      const sameWs = !!j.session && j.session === S.session;
+      const p = sameWs ? S.pages.find((x) => x.page === j.page) : null;
       if (p) p.status = j.status;
 
       // 队列状态同步到「框级」和「页级」加载标记
       const finish = j.status === 'done' || j.status === 'error';
+      // 暂停不算「正在跑」：队列停了，转圈也该停
+      const running = j.status === 'queued' || j.status === 'running';
+      if (!j.session) { draw(); return; }
       if (j.mode === 'ocr-boxes' && Array.isArray(j.boxes)) {
         for (const b of j.boxes) {
-          const k = boxKey(j.page, b);
-          if (finish) pending.delete(k); else pending.set(k, j.id);
+          const k = boxKey(j.page, b, j.session);
+          if (running) pending.set(k, j.id); else pending.delete(k);
         }
       } else if (j.mode === 'ocr-region' && j.box) {
         // 区域识别：交给框级标记（那个框转圈），不整页遮罩
-        const k = boxKey(j.page, j.box);
-        if (finish) { pending.delete(k); regionBusy.delete(j.page); }
-        else pending.set(k, j.id);
+        const k = boxKey(j.page, j.box, j.session);
+        if (running) pending.set(k, j.id);
+        else { pending.delete(k); regionBusy.delete(regionKey(j.page, j.session)); }
       } else if (j.mode === 'detect-region' && j.box) {
         // 区域找框：只在那块区域显示
-        if (finish) regionBusy.delete(j.page);
-        else regionBusy.set(j.page, { box: j.box, mode: 'detect-region' });
+        const rk = regionKey(j.page, j.session);
+        if (running) regionBusy.set(rk, { box: j.box, mode: 'detect-region', session: j.session, id: j.id });
+        else regionBusy.delete(rk);
       } else if (j.mode) {
         // 页级任务：整页找框 / 整页识别 / 区域找框 / 区域识别
-        const k = 'page:' + j.page;
-        if (finish) pageBusy.delete(k); else pageBusy.set(k, { mode: j.mode, status: j.status });
+        const k = pageKey(j.page, j.session);
+        if (running) pageBusy.set(k, { mode: j.mode, status: j.status, session: j.session, id: j.id });
+        else pageBusy.delete(k);
       }
-      if (finish) draw();
+      draw();
+
+      if (!sameWs) return;
 
       if (j.status === 'done') {
         const i2 = S.pages.findIndex((x) => x.page === j.page);
@@ -1641,6 +1676,11 @@ function openToolDialog(kind) {
       es.addEventListener('job-removed', (e) => {
         const { id } = JSON.parse(e.data);
         jobs.value = jobs.value.filter((j) => j.id !== id);
+        // 任务被删掉后，它留下的转圈标记也要一起清掉（可能属于别的画布）
+        for (const k of [...pending.keys()]) if (pending.get(k) === id) pending.delete(k);
+        for (const k of [...pageBusy.keys()]) if (pageBusy.get(k)?.id === id) pageBusy.delete(k);
+        for (const k of [...regionBusy.keys()]) if (regionBusy.get(k)?.id === id) regionBusy.delete(k);
+        draw();
       });
       es.addEventListener('op', (e) => {
         const d = JSON.parse(e.data);
@@ -1680,24 +1720,28 @@ function openToolDialog(kind) {
       syncBusy(d.jobs || []);
     }
 
-    // 用后台真实任务列表重建加载标记：避免界面上的转圈卡在错误状态
+    // 用后台真实任务列表重建加载标记：避免界面上的转圈卡在错误状态。
+    // 任务队列是全局的，每个标记都带画布前缀，所以这里按任务自己的画布重建；
+    // 当前画布只认自己的任务，别的画布的任务留在它自己的前缀下。
     function syncBusy(list) {
-      const live = list.filter((j) => j.status === 'queued' || j.status === 'running');
+      const live = list.filter((j) => (j.status === 'queued' || j.status === 'running') && j.session);
       const boxWanted = new Map();
       const pageWanted = new Map();
       const regionWanted = new Map();
       for (const j of live) {
         if (j.mode === 'ocr-boxes' && Array.isArray(j.boxes)) {
-          for (const b of j.boxes) boxWanted.set(boxKey(j.page, b), j.id);
+          for (const b of j.boxes) boxWanted.set(boxKey(j.page, b, j.session), j.id);
         } else if (j.mode === 'ocr-region' && j.box) {
-          boxWanted.set(boxKey(j.page, j.box), j.id);
+          boxWanted.set(boxKey(j.page, j.box, j.session), j.id);
         } else if (j.mode === 'detect-region' && j.box) {
-          regionWanted.set(j.page, { box: j.box, mode: 'detect-region' });
+          regionWanted.set(regionKey(j.page, j.session),
+            { box: j.box, mode: 'detect-region', session: j.session });
         } else if (j.mode) {
-          pageWanted.set('page:' + j.page, { mode: j.mode, status: j.status });
+          pageWanted.set(pageKey(j.page, j.session),
+            { mode: j.mode, status: j.status, session: j.session });
         }
       }
-      // 只清掉「不是本地刚提交」的过期项
+      // 只清掉已经没有对应任务的过期项；本地刚提交、还没拿到任务 id 的项保留
       for (const k of [...pending.keys()]) {
         if (pending.get(k) === 'local') continue;
         if (!boxWanted.has(k)) pending.delete(k);
@@ -1725,6 +1769,9 @@ function openToolDialog(kind) {
         fitAll, focusTarget, draw, queueJob, queueAll, switchSession, previewImage, previewJson,
         setMode, selectBox, clearBoxes, queueBoxOcr, savePage, clearHistory, removeBox,
         isPending, pageIsBusy, pageBusyMode,
+        // 测试用：模拟收到一条任务推送，检查转圈只出现在任务自己的画布上
+        debugApplyJob: applyJob,
+        debugSyncBusy: syncBusy,
         get pendingSize() { return pending.size; }, get pageBusySize() { return pageBusy.size; },
         get regionBusySize() { return regionBusy.size; },
         debugAnim: () => ({ nowSec: +nowSec.toFixed(2),
@@ -1761,7 +1808,7 @@ function openToolDialog(kind) {
       let last = 0;
       const tick = (ts) => {
         requestAnimationFrame(tick);
-        const active = pending.size > 0 || pageBusy.size > 0 || regionBusy.size > 0;
+        const active = busyHere();
         if (!active) { animT0 = 0; last = ts; return; }
         if (!animT0) animT0 = ts;
         nowSec = (ts - animT0) / 1000;
@@ -1781,7 +1828,7 @@ function openToolDialog(kind) {
       stepBox, jumpToIndex,
       clearBoxes,
       createSession, upload, switchSession, queueJob, queueAll, loadHistory,
-      sortedJobs, activeJobs, pauseJob, resumeJob, removeJob, pauseAll, resumeAll, clearFinished, loadJobs,
+      sortedJobs, activeJobs, otherActive, pauseJob, resumeJob, removeJob, pauseAll, resumeAll, clearFinished, loadJobs,
       openOps, preview, previewOpen, previewTitle, previewImage, previewJson, onToggle, jumpToHistory,
       restoring, restoreOp,
       toolDialog, openToolDialog,

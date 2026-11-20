@@ -71,6 +71,7 @@ node scripts/coord.mjs release public/canvas.js
 | 2026-11-19 | 协调 | 认领清单从 3 个热文件扩到 `server/canvas.mjs` 和技能两个文件；`status` 会单独列出共享后端和技能文档 | `node scripts/coord.mjs status` |
 | 2026-11-19 | 分镜 tab | 右侧面板新增「分镜」tab：读 `sessions/<画布>/NNNNN.md` 直接渲染成分镜稿（页面信息、场景、每镜卡片、台词、音效表），按页切换，点了画布上的图会自动跳到对应页。新增独立文件 `public/storyboard.js` + 本地 `public/vendor/marked.min.js`，面板只加一个 `#storyboard-root` 挂载点（2fff715） | 浏览器实测 Demo3/Demo1：分镜 tab 正常显示、切页、无控制台报错；四种 md 写法都能解析 |
 | 2026-11-19 | 面板拖拽宽度 | 画布与面板之间加 8px 拖拽条，宽度写进 `--panel-w`：最小 280px、最大 `min(720px, 窗口 60%)`，双击回 336px，宽度存 localStorage，窄窗口自动重夹；`.logs` 改成跟随面板宽度的 CSS 变量。新增独立文件 `public/panel-split.js`，`index.html` 只动布局那几段（29ecf86） | `node test/verify-panel-split.mjs` 16 项全过；`verify-panel-smoke` 5 项、`health-check` 全过；浏览器截图确认拖拽条悬停变蓝、280px 四个 tab 不折行 |
+| 2026-11-20 | 任务加载态按工作区隔离 | 加载标记（框级/页级/区域）都加上画布名前缀，只有任务所属画布才显示转圈；`applyJob` 不再拿别的画布的任务改当前页状态；切画布后重新对一遍任务；`jobStat` / `activeJobs` / 暂停全部、恢复全部、清理已完成只算当前画布；任务列表仍全局显示，行上标出所属画布；`panel.html` 加「统计：当前画布 X」和「其他画布还有 N 个任务在跑」 | `node test/verify-workspace-busy.mjs` 9 项全过；`health-check` 全过；浏览器实测 Demo1/Demo2 切换，转圈只出现在任务所属画布 |
 
 ## 事故记录：暂存区被两个对话共用
 

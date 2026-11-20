@@ -24,6 +24,13 @@
   <div class="panel-body" :class="{ 'panel-body--detail': sideTab === 'detail' }">
     <!-- ========== 任务 ========== -->
     <div v-if="sideTab === 'jobs'">
+      <!-- 任务队列是全局的；这里的数字只算「当前画布」，别的画布单独提示 -->
+      <div style="font-size:10.5px;color:#999;margin:0 0 6px">
+        统计：当前画布 <b style="color:#555;font-weight:600">{{ S.session || '—' }}</b>
+        <span v-if="otherActive.length" style="color:#b8860b;margin-left:6px">
+          其他画布还有 {{ otherActive.length }} 个任务在跑
+        </span>
+      </div>
       <div class="jobsum">
         <div><b>{{ jobStat.running }}</b><span>运行中</span></div>
         <div><b>{{ jobStat.queued }}</b><span>排队</span></div>
@@ -38,7 +45,9 @@
       </div>
       <kit-empty v-if="!sortedJobs.length" icon="task_alt" title="暂无任务" desc="选中图片后点「识别框」或「识别文字」"></kit-empty>
       <div v-for="j in sortedJobs" :key="j.id" class="job-row" :class="j.status"
-        @click="j.status === 'done' && jumpToHistory(j)">
+        :class="{ 'other-ws': j.session !== S.session }"
+        :style="j.session && j.session !== S.session ? 'opacity:.62' : ''"
+        @click="j.status === 'done' && j.session === S.session && jumpToHistory(j)">
         <span v-if="j.status === 'running'" class="ico spin-ico" title="执行中"></span>
         <span v-else class="ico material-symbols-outlined">
           {{ { queued: 'schedule', paused: 'pause_circle', done: 'check_circle', error: 'error' }[j.status] }}
@@ -47,6 +56,9 @@
           <div class="line1">
             <b>{{ j.page }}</b>
             <span class="tag2">{{ MODE_LABEL[j.mode] || j.mode }}</span>
+            <span class="tag2" v-if="j.session && j.session !== S.session"
+              style="background:#fff4dd;color:#b8860b"
+              :title="'这条任务属于画布 ' + j.session">{{ j.session }}</span>
                       </div>
           <div class="line2">
             <span class="mono">{{ fmtTime(j.ts) }}</span>
@@ -54,7 +66,7 @@
             <span v-if="j.error" style="color:#c0392b">{{ j.error }}</span>
           </div>
         </div>
-        <span v-if="j.status === 'done'" class="link" title="查看历史">
+        <span v-if="j.status === 'done' && j.session === S.session" class="link" title="查看历史">
           <span class="material-symbols-outlined">open_in_new</span>
         </span>
         <button v-if="j.status === 'queued'" class="op" title="暂停" @click.stop="pauseJob(j.id)">
