@@ -150,7 +150,7 @@ COMIC_CANVAS_HOME（可选）
 | server/render_check.py:113 | 写死 msyh.ttc | 多候选字体 + 找不到时 load_default() |
 | server/ocr_service.py:37,40 | 写死 MT 目录并 chdir | 环境变量 MANGA_TRANSLATOR_ROOT，缺失时报错 |
 | skills/.../canvas_cli.py:45-48 | 写死 ROOT/SESSIONS/OCR_PY/日志 | COMIC_CANVAS_HOME + COMIC_CANVAS_ROOT 推导 |
-| start.bat:6 | 写死 OCR_PY | 从 MANGA_TRANSLATOR_ROOT 推导，缺失时提示 |
+| start.bat:6 | 写死 OCR_PY | 文件已删除，启动统一走 bin/cli.mjs |
 
 ## 五点五、manga-image-translator 怎么定位与安装
 
@@ -368,7 +368,7 @@ home:    ~/.manga-panel-studio   （环境变量改叫 MPS_HOME 或 STUDIO_HOME�
 | canvas_cli.py:45-49 | settings.json 同上 | settings > 默认值 |
 | tools_helpers.js:11-13 | settings.canvas.dataDir | settings > 默认用户目录 |
 | render_check.py:32 sessions | settings.canvas.sessionsDir | settings > 默认 |
-| start.bat:6 OCR_PY | settings.translator.projectRoot 推导 | settings > 提示去设置页填 |
+| start.bat | 已删除（重复的启动逻辑） | 启动只保留 bin/cli.mjs 一份 |
 
 关键点：
 
@@ -386,7 +386,7 @@ home:    ~/.manga-panel-studio   （环境变量改叫 MPS_HOME 或 STUDIO_HOME�
 | 阶段 | 内容 | 验证 |
 | --- | --- | --- |
 | 0 | 删 _h.py、_t2.py；作废泄漏 key；.gitignore 补 \`_*.py\`；package.json；settings.example.json | git log 干净、npm pack 通过 |
-| 1a | settings.json 加 canvas/translator 分组；server 四处 + CLI + start.bat 全部改读配置 | 改 settings.json 里的路径，服务行为跟着变 |
+| 1a | settings.json 加 canvas/translator 分组；server 四处 + CLI 全部改读配置 | 改 settings.json 里的路径，服务行为跟着变 |
 | 1b | 数据目录默认值切到 %LOCALAPPDATA%/<包名>；settings 页加路径编辑；旧 sessions 手动搬一次 | 换盘符启动正常 |
 | 2 | 技能改名 manga-panel-studio；SKILL.md 精简；scripts/run.mjs 启动器 | npx skills add 本仓库可用 |
 | 3 | npm 发布 + GitHub 公开 | 干净机器全流程 |

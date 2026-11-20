@@ -81,14 +81,15 @@ cd manga-panel-studio
 npm install
 ```
 
-双击 `start.bat` 等价于 `node bin/cli.mjs start-all`：它会从
-`~/.manga-panel-studio/settings.json` 的 `translator.projectRoot` 推导 Python 路径，
-打印画布地址和数据目录，然后同时拉起两个服务：
+然后用 npm 包里同一个入口启动，源码运行和全局安装不会有第二套启动方式：
 
-```text
-画布服务   node server/canvas.mjs                  http://127.0.0.1:7788
-识别服务   python server/ocr_service.py --port 5009
+```powershell
+node bincli.mjs start-all
 ```
+
+它会从 `~/.manga-panel-studio/settings.json` 的 `translator.projectRoot` 推导 Python 路径，
+打印画布地址和数据目录，然后同时拉起两个服务（7788 画布 + 5009 识别）。
+只想单独起某一个，就用 `node bincli.mjs`（只起画布）或 `node bincli.mjs ocr`。
 
 首次启动要加载 OCR 模型，`/health` 可能 1–3 分钟才通，属正常现象，不要重复启动。
 
@@ -176,7 +177,7 @@ settings.json               模型地址、密钥、豆包配置（已被 .gitig
 
 ## 已知限制
 
-- 目前是 Windows 本地版：`start.bat`、OCR 的 Python 路径、校对图字体都按 Windows 写。
+- 目前是 Windows 本地版：OCR 的 Python 路径、校对图字体都按 Windows 写。
 - 识别服务依赖 `manga-image-translator` 与模型权重，体积较大，不随仓库分发。
 - 端口固定为 7788 / 5009，暂未提供修改方式。
 
