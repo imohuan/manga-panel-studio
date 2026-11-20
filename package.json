@@ -1,6 +1,6 @@
 {
   "name": "manga-panel-studio",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Manga OCR proofreading canvas with dubbing pipeline (Node backend + vanilla JS frontend, zero npm runtime deps)",
   "bin": {
     "manga-panel-studio": "bin/cli.mjs"
@@ -16,8 +16,10 @@
   "files": [
     "bin",
     "server",
+    "!server/__pycache__",
     "public",
     "skills",
+    "!skills/**/__pycache__",
     "settings.example.json",
     "README.md"
   ],

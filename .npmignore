@@ -1,0 +1,15 @@
+# 打包时排除的东西（files 字段里列了 server/ skills/ 整个目录，
+# 所以 Python 编译缓存会被一起带上，这里显式排掉）。
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+*.tgz
+.coord/
+.codegraph/
+.cdp*/
+sessions/
+settings.json
+.npmrc
+docs/
+scripts/
+tests/
