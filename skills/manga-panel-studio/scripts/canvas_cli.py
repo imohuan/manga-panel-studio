@@ -226,15 +226,39 @@ def put_regions(base, session, page, regions, summary, box=None, op="box-edit", 
                      "box": box, "boxes": boxes})
 
 
-def wait_jobs(base, pages, timeout=900):
+def wait_jobs(base, pages, timeout=900, on_page_done=None):
+    """等到 pages 里的页全部结束。每有一页完成就回调 on_page_done(page, job)，
+    调用方可以立刻处理这一页，不必等整批跑完。"""
+    pages = set(pages)
+    seen = set()
     t0 = time.time()
     while time.time() - t0 < timeout:
         st = api(base, "GET", "/api/jobs")
-        if not st.get("running") and not (st.get("queued") or 0):
+        for j in st.get("jobs") or []:
+            pg = j.get("page")
+            if pg in pages and pg not in seen and j.get("status") in ("done", "error"):
+                seen.add(pg)
+                if on_page_done:
+                    on_page_done(pg, j)
+        if len(seen) >= len(pages):
             break
         time.sleep(2)
     st = api(base, "GET", "/api/jobs")
     return [j for j in st["jobs"] if j.get("page") in pages]
+
+
+def done_pages(base, session):
+    """返回 (已完成页, 识别中页, 排队数)：判断哪些页 OCR 好了可以立刻往下做。"""
+    st = api(base, "GET", "/api/jobs")
+    done, running = set(), set()
+    for j in st.get("jobs") or []:
+        if j.get("session") != session:
+            continue
+        if j.get("status") == "done":
+            done.add(j.get("page"))
+        elif j.get("status") == "running":
+            running.add(j.get("page"))
+    return done, running
 
 
 def cmd_check(args):
@@ -301,13 +325,50 @@ def cmd_ocr(args):
         job = api(args.base, "POST", f"/api/session/{args.session}/job",
                   json={"page": pg, "mode": "ocr-page"})
         print(f"  排队 {pg}: {job.get('id')}")
-    done = wait_jobs(args.base, pages)
-    for j in done:
-        r = j.get("result") or {}
-        print(f"  {j.get('page')} {j.get('status')} {r.get('count','')} 框 {j.get('error','')}")
-    for pg in pages:
-        p = get_page(args.base, args.session, pg)
-        print(f"  {pg}: {len(p['regions'])} 框")
+    print("")
+    print("已排入 %d 页，后台识别中。不要在这里干等。" % len(pages))
+    print("  打开 http://127.0.0.1:7788/?s=%s 可以实时看进度。" % args.session)
+    if getattr(args, "wait", False):
+        done = wait_jobs(args.base, pages)
+        for j in done:
+            r = j.get("result") or {}
+            print(f"  {j.get('page')} {j.get('status')} {r.get('count','')} 框 {j.get('error','')}")
+        for pg in pages:
+            p = get_page(args.base, args.session, pg)
+            print(f"  {pg}: {len(p['regions'])} 框")
+    else:
+        print("  页一好就处理下一页：python canvas_cli.py next %s" % args.session)
+
+
+def cmd_next(args):
+    """流水线取页：打印最早一页「已 OCR 完但还没写 md」的页号。
+    没有可处理的页时退出码 1，调用方据此决定是等待还是收尾。"""
+    sdir = SESSIONS_ROOT / args.session
+    if not sdir.exists():
+        raise SystemExit("会话不存在: " + str(sdir))
+    done, running = done_pages(args.base, args.session)
+    pages = sorted(p.stem for p in sdir.iterdir()
+                   if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+                   and not p.name.startswith("."))
+    def has_boxes(pg):
+        """这页是否已经 OCR 出框。以页面 JSON 为准，不依赖任务队列
+        （服务重启后 /api/jobs 只保留最近若干条，靠它判断会误报）。"""
+        try:
+            meta = json.loads((sdir / (pg + ".json")).read_text(encoding="utf-8"))
+            return len(meta.get("regions") or []) > 0
+        except Exception:
+            return False
+
+    ready = [pg for pg in pages
+             if has_boxes(pg) and not (sdir / (pg + ".md")).exists()]
+    if not ready:
+        with_boxes = [p for p in pages if has_boxes(p)]
+        left = [p for p in pages if not has_boxes(p)]
+        print("暂时没有可处理的页（已识别 %d/%d" % (len(with_boxes), len(pages))
+              + (", 识别中 %d" % len(running) if running else "")
+              + (", 未识别 %d" % len(left) if left else "") + "）")
+        raise SystemExit(1)
+    print(ready[0])
 
 
 def cmd_add(args):
@@ -1145,7 +1206,12 @@ def build_parser():
     s = sub.add_parser("list"); s.add_argument("session"); s.set_defaults(func=cmd_list)
     s = sub.add_parser("show"); s.add_argument("session"); s.add_argument("page"); s.set_defaults(func=cmd_show)
     s = sub.add_parser("init"); s.add_argument("session"); s.add_argument("images", nargs="+"); s.set_defaults(func=cmd_init)
-    s = sub.add_parser("ocr"); s.add_argument("session"); s.add_argument("--pages", nargs="*"); s.set_defaults(func=cmd_ocr)
+    s = sub.add_parser("ocr"); s.add_argument("session"); s.add_argument("--pages", nargs="*")
+    s.add_argument("--wait", action="store_true",
+                   help="等到全部页识别完（默认只排队后立即返回）")
+    s.set_defaults(func=cmd_ocr)
+    s = sub.add_parser("next", help="流水线取页：取最早一页已 OCR 完但未写 md 的页")
+    s.add_argument("session"); s.set_defaults(func=cmd_next)
     s = sub.add_parser("add"); s.add_argument("session"); s.add_argument("page")
     s.add_argument("box", nargs=4, type=int); s.add_argument("text"); s.set_defaults(func=cmd_add)
     s = sub.add_parser("rm"); s.add_argument("session"); s.add_argument("page")
