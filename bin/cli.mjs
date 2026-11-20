@@ -41,6 +41,19 @@ const mtRoot = () => {
   } catch { return ''; }
 };
 
+// 数据根目录：环境变量 > settings.canvas.dataDir > ~/.manga-panel-studio。
+// 和 server/tools_helpers.js 同一套优先级，打印出来的路径才是服务真正在用的那个。
+function dataHome() {
+  if (process.env.STUDIO_DATA_DIR) return process.env.STUDIO_DATA_DIR;
+  try {
+    const sf = process.env.STUDIO_SETTINGS_FILE
+      || path.join(os.homedir(), '.manga-panel-studio', 'settings.json');
+    const dir = ((JSON.parse(fs.readFileSync(sf, 'utf8')).canvas) || {}).dataDir || '';
+    if (dir) return dir;
+  } catch {}
+  return path.join(os.homedir(), '.manga-panel-studio');
+}
+
 function banner(tag) { console.log('────────── ' + tag + ' ──────────'); }
 
 
@@ -84,7 +97,7 @@ async function startOcr({ foreground = false } = {}) {
   console.log('[mps]   OCR 依赖: manga-image-translator（' + (mtRoot() || '未配置，去设置页填') + '）');
   const today = new Date();
   const ymd = today.getFullYear() + String(today.getMonth()+1).padStart(2,'0') + String(today.getDate()).padStart(2,'0');
-  const ocrLog = path.join(process.env.STUDIO_DATA_DIR || path.join(os.homedir(), '.manga-panel-studio'), 'logs', 'ocr-service-' + ymd + '.log');
+  const ocrLog = path.join(dataHome(), 'logs', 'ocr-service-' + ymd + '.log');
   console.log('[mps]   OCR 日志文件: ' + ocrLog + '（每天一个新文件，保留 14 天）');
   console.log('');
   console.log('[mps] 下面是 OCR 子进程的原始输出（前缀 [ocr]），它的日志会实时显示在这里：');
@@ -119,6 +132,12 @@ async function startOcr({ foreground = false } = {}) {
       banner('manga-panel-studio');
       console.log('[mps] OCR 服务已就绪: http://127.0.0.1:5009/health');
       console.log('[mps] 服务在后台常驻运行（关掉这个终端也不影响）。');
+      const alive = await get('http://127.0.0.1:7788/api/sessions');
+      if (alive.ok) {
+        console.log('[mps] 画布地址: http://127.0.0.1:7788');
+      } else {
+        console.log('[mps] 画布（7788）还没起，另开一个终端跑 manga-panel-studio');
+      }
       return true;
     }
     if (child && child.exitCode !== null && child.exitCode !== 0) {
@@ -141,8 +160,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function printStartInfo() {
   banner('manga-panel-studio');
   console.log('画布地址: http://127.0.0.1:7788');
-  console.log('数据目录: ' + path.join(process.env.STUDIO_DATA_DIR || path.join(os.homedir(), '.manga-panel-studio')));
-  console.log('会话目录: ' + path.join(process.env.STUDIO_DATA_DIR || path.join(os.homedir(), '.manga-panel-studio'), 'sessions'));
+  const home = dataHome();
+  console.log('数据目录: ' + home);
+  console.log('会话目录: ' + path.join(home, 'sessions'));
   console.log('');
   console.log('用起来分三步:');
   console.log('  1. 浏览器打开 http://127.0.0.1:7788/settings.html 填 API Key');

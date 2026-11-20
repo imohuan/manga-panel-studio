@@ -47,7 +47,9 @@ OCR_BASE = "http://127.0.0.1:5009"
 # 路径与端口统一从 settings.json 读，不再写死盘符。
 # settings.json 位置：环境变量 STUDIO_SETTINGS_FILE > ~/.manga-panel-studio/settings.json
 # > 项目根 settings.json（旧位置，向后兼容）。
-# 数据目录：环境变量 STUDIO_DATA_DIR > settings.canvas.dataDir > %LOCALAPPDATA%/manga-panel-studio
+# 数据目录：环境变量 STUDIO_DATA_DIR > settings.canvas.dataDir > ~/.manga-panel-studio
+# 默认值与 Node 侧（tools_helpers.js 的 HOME）保持一致，否则同一份 settings.json
+# 会被两边读成两个不同目录，sessions 看起来“凭空消失”。
 _HERE = Path(__file__).resolve().parent
 _REPO = _HERE.parent.parent.parent          # skills/<name>/scripts/ 上三级 = 仓库根
 def _default_settings_file():
@@ -69,7 +71,7 @@ def _read_cfg():
 _cfg = _read_cfg()
 _canvas = _cfg.get("canvas") or {}
 _home = Path(os.environ.get("STUDIO_DATA_DIR") or _canvas.get("dataDir")
-             or (Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "manga-panel-studio"))
+             or (Path.home() / ".manga-panel-studio"))
 ROOT = _REPO
 SESSIONS_ROOT = _home / "sessions"
 DEFAULT_BASE = os.environ.get("STUDIO_CANVAS_BASE") or (_canvas.get("canvasBaseUrl") or DEFAULT_BASE)
@@ -226,27 +228,6 @@ def put_regions(base, session, page, regions, summary, box=None, op="box-edit", 
         json={"regions": regions, "by": "manga-panel-studio-cli",
                      "op": op, "summary": summary, "force": True,
                      "box": box, "boxes": boxes})
-
-
-def wait_jobs(base, pages, timeout=900, on_page_done=None):
-    """等到 pages 里的页全部结束。每有一页完成就回调 on_page_done(page, job)，
-    调用方可以立刻处理这一页，不必等整批跑完。"""
-    pages = set(pages)
-    seen = set()
-    t0 = time.time()
-    while time.time() - t0 < timeout:
-        st = api(base, "GET", "/api/jobs")
-        for j in st.get("jobs") or []:
-            pg = j.get("page")
-            if pg in pages and pg not in seen and j.get("status") in ("done", "error"):
-                seen.add(pg)
-                if on_page_done:
-                    on_page_done(pg, j)
-        if len(seen) >= len(pages):
-            break
-        time.sleep(2)
-    st = api(base, "GET", "/api/jobs")
-    return [j for j in st["jobs"] if j.get("page") in pages]
 
 
 def done_pages(base, session):

@@ -16,7 +16,7 @@
 
 启动：
     I:/manga-image-translator/py310/python.exe server/ocr_service.py --port 5009 --use-gpu
-（工作目录是仓库根，通常由 bin/cli.mjs 启动）
+    （工作目录是仓库根，通常由 bin/cli.mjs 启动）
 """
 from __future__ import annotations
 
@@ -44,12 +44,20 @@ import json
 import sys, os
 from pathlib import Path
 
+def _settings_file() -> Path:
+    """settings.json 位置：STUDIO_SETTINGS_FILE > <数据根>/settings.json，与 CLI 一致。"""
+    env = os.environ.get("STUDIO_SETTINGS_FILE")
+    if env:
+        return Path(env)
+    data = os.environ.get("STUDIO_DATA_DIR") or str(Path.home() / ".manga-panel-studio")
+    return Path(data) / "settings.json"
+
+
 def _load_mt_root():
     env = os.environ.get("MT_ROOT")
     if env and Path(env).is_dir():
         return Path(env)
-    sf = (Path(os.environ.get("STUDIO_DATA_DIR")) if os.environ.get("STUDIO_DATA_DIR")
-          else Path.home() / ".manga-panel-studio") / "settings.json"
+    sf = _settings_file()
     if sf.exists():
         try:
             root = (json.loads(sf.read_text(encoding="utf-8")).get("translator") or {}).get("projectRoot") or ""
@@ -92,16 +100,35 @@ extract_columns = _mod.extract_columns
 
 # ---------------- 日志 ----------------
 # 独立于 manga-image-translator：本服务自己的日志，按天切分，保留 14 天。
-# 目录优先级：OCR_LOG_DIR > <数据根>/logs；数据根 = STUDIO_DATA_DIR 或 ~/.manga-panel-studio
+# 目录优先级：OCR_LOG_DIR > <数据根>/logs；
+# 数据根 = STUDIO_DATA_DIR > settings.canvas.dataDir > ~/.manga-panel-studio，
+# 与 Node 侧 tools_helpers.js 的 HOME 同一套优先级，避免日志和 sessions 分家。
 LOG = logging.getLogger("ocr-service")
 _LOG_PATH = ""
+
+
+def _settings_data_dir() -> str:
+    """数据根目录：环境变量 > settings.json 的 canvas.dataDir > ~/.manga-panel-studio。
+    与 Node 侧 tools_helpers.js 的 HOME 用同一套优先级，日志才不会和 sessions 分家。"""
+    env = os.environ.get("STUDIO_DATA_DIR")
+    if env:
+        return env
+    sf = _settings_file()
+    try:
+        data = ((json.loads(sf.read_text(encoding="utf-8")).get("canvas") or {})
+                .get("dataDir") or "")
+        if data:
+            return data
+    except Exception:
+        pass
+    return str(Path.home() / ".manga-panel-studio")
 
 
 def _default_log_dir() -> Path:
     env = os.environ.get("OCR_LOG_DIR")
     if env:
         return Path(env)
-    data = os.environ.get("STUDIO_DATA_DIR") or str(Path.home() / ".manga-panel-studio")
+    data = _settings_data_dir()
     return Path(data) / "logs"
 
 

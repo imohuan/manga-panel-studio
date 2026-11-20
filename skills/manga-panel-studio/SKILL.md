@@ -177,9 +177,11 @@ OCR 服务地址。
 
     <数据根>/sessions/<会话>/        数据根默认 ~/.manga-panel-studio，
                                     可用 settings.canvas.dataDir 覆盖
+                                    （Node、Python、OCR 三处读同一份 settings.json，
+                                     优先级一致，不会读到不同目录）
     ├── NNNNN.jpg                   页面图（1280 宽 jpg）
     ├── NNNNN.json                  选框与文字：regions 数组（box/text/prob/source）
-├── NNNNN.md                    【本技能产出】AI 读图写出的分镜，台词完整内嵌
+    ├── NNNNN.md                    【本技能产出】AI 读图写出的分镜，台词完整内嵌
     ├── NNNNN_audio_scripts.json    【本技能产出】角色声纹 + 对话列表
     ├── characters.json             会话级角色档案（名字/外貌/声纹描述/音频引用）
     ├── voices/                     豆包生成的音频

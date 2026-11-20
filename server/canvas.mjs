@@ -1039,7 +1039,9 @@ http.createServer(async (req, res) => {
 
     const f = p === '/' ? path.join(ROOT_DIR, 'public/index.html') : path.join(ROOT_DIR, 'public', p.slice(1));
     if (fs.existsSync(f) && fs.statSync(f).isFile()) {
-      const type = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' }[path.extname(f)] || 'application/octet-stream';
+      const type = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+        '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json; charset=utf-8' }[path.extname(f).toLowerCase()] || 'application/octet-stream';
       if (p === '/') {
         // 面板模板单独放 public/panel.html，改完立刻生效，不用再手工拼回 index.html
         let html = fs.readFileSync(f, 'utf8');

@@ -84,12 +84,12 @@ npm install
 然后用 npm 包里同一个入口启动，源码运行和全局安装不会有第二套启动方式：
 
 ```powershell
-node bincli.mjs start-all
+node bin\cli.mjs start-all
 ```
 
 它会从 `~/.manga-panel-studio/settings.json` 的 `translator.projectRoot` 推导 Python 路径，
 打印画布地址和数据目录，然后同时拉起两个服务（7788 画布 + 5009 识别）。
-只想单独起某一个，就用 `node bincli.mjs`（只起画布）或 `node bincli.mjs ocr`。
+只想单独起某一个，就用 `node bin\cli.mjs`（只起画布）或 `node bin\cli.mjs ocr`。
 
 首次启动要加载 OCR 模型，`/health` 可能 1–3 分钟才通，属正常现象，不要重复启动。
 
