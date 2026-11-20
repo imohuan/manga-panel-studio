@@ -282,11 +282,13 @@ def cmd_show(args):
 
 
 def cmd_init(args):
-    api(args.base, "POST", "/api/sessions", json={"name": args.session})
     imgs = sorted(Path(p) for p in args.images)
     missing = [str(p) for p in imgs if not p.exists()]
     if missing:
         raise SystemExit("找不到图片: " + ", ".join(missing))
+    # 图片校验放在建会话之前：路径写错时不该留下一个空会话目录，
+    # 否则用户下次打开画布会看到一个没有图片的会话，以为是程序坏了。
+    # （upload 接口自己会 mkdir，不需要先 POST /api/sessions）
     # 页码归一化：一律重命名为 5 位（NNNNN），按文件名排序后顺序编号。
     # 页码格式不统一会让校验/历史/脚本里出现 0001 和 00003 并存的混乱。
     renamed = []
@@ -369,21 +371,26 @@ def cmd_next(args):
     pages = sorted(p.stem for p in sdir.iterdir()
                    if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
                    and not p.name.startswith("."))
-    def has_boxes(pg):
-        """这页是否已经 OCR 出框。以页面 JSON 为准，不依赖任务队列
-        （服务重启后 /api/jobs 只保留最近若干条，靠它判断会误报）。"""
+    def is_done(pg):
+        """这页 OCR 是否已经跑完。看 JSON 里的 status=done，不是看框数：
+        纯图页（封面、整页画面）识别完就是 0 框，按框数判断会把它们
+        永远当成「还没识别」，导致 next 一直跳过、这些页永远写不出 md。"""
         try:
             meta = json.loads((sdir / (pg + ".json")).read_text(encoding="utf-8"))
-            return len(meta.get("regions") or []) > 0
+            return meta.get("status") == "done" or bool(meta.get("regions"))
         except Exception:
             return False
 
     ready = [pg for pg in pages
-             if has_boxes(pg) and not (sdir / (pg + ".md")).exists()]
+             if is_done(pg) and not (sdir / (pg + ".md")).exists()]
     if not ready:
-        with_boxes = [p for p in pages if has_boxes(p)]
-        left = [p for p in pages if not has_boxes(p)]
-        print("暂时没有可处理的页（已识别 %d/%d" % (len(with_boxes), len(pages))
+        # 统计口径要和 ready 一致：0 框的纯图页也算「已识别」，
+        # 否则会显示「已识别 41/43、未识别 2」，让人以为 OCR 卡住了。
+        finished = [p for p in pages if is_done(p)]
+        # 正在识别的那几页还没出结果，不能同时算进「未识别」，
+        # 否则 43 页会打印成「识别中 1, 未识别 43」，加起来 44。
+        left = [p for p in pages if not is_done(p) and p not in running]
+        print("暂时没有可处理的页（已识别 %d/%d" % (len(finished), len(pages))
               + (", 识别中 %d" % len(running) if running else "")
               + (", 未识别 %d" % len(left) if left else "") + "）")
         raise SystemExit(1)
