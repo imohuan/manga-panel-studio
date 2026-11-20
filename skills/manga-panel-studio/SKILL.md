@@ -32,6 +32,14 @@ metadata:
 
 判断方法：`manga-panel-studio check` 通了就直接用。
 
+`manga-panel-studio ocr` 会自己判断情况并说清楚：
+
+- 5009 已健康 → 直接复用，不重复启动；
+- 端口被别的进程占着 → 打印 netstat / taskkill 的具体命令；
+- Python 路径不存在 → 让你去设置页填 manga-image-translator 目录；
+- 启动后崩溃 → 直接打印日志最后 12 行（真实报错，不是「请稍后重试」）；
+- 正常 → 等到 health 就绪才返回 OK。
+
 ### 第一步：看一眼配置有没有填
 
 配置存在 ~/.manga-panel-studio/settings.json（npm 安装时自动从模板创建；

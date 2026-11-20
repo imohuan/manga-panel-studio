@@ -10,6 +10,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -32,10 +33,90 @@ function resolvePython() {
   return 'python';
 }
 
-function spawnDetached(bin, args, cwd) {
-  const child = spawn(bin, args, { cwd, stdio: 'ignore', detached: true });
+const LOG_DIR = path.join(process.env.STUDIO_DATA_DIR || path.join(os.homedir(), '.manga-panel-studio'), 'logs');
+
+// 启动 OCR 并等它真的起来：失败时把真实原因说清楚，不留给用户瞎猜。
+async function startOcr({ foreground = false } = {}) {
+  const py = resolvePython();
+  const script = path.join(ROOT_DIR, 'server', 'ocr_service.py');
+  if (!fs.existsSync(script)) {
+    console.log('还没有 OCR 服务代码文件，当前是旧版本包。先升级：npm i -g manga-panel-studio@latest');
+    return false;
+  }
+
+  // 1) 端口已被占用：先判断那是谁，是我们自己的就直接复用，是别人的就报清楚。
+  const already = await get('http://127.0.0.1:5009/health');
+  if (already.ok) {
+    console.log('OCR 服务已经在运行（5009 健康），直接复用，不重复启动。');
+    return true;
+  }
+
+  // 2) 端口被非 OCR 进程占着：这会造成 [Errno 10048]，必须提前说清楚。
+  const busy = await isPortListening(5009);
+  if (busy) {
+    console.log('端口 5009 被别的进程占用了（多半是上次没退干净的 OCR 进程）。');
+    console.log('  查看占用：netstat -ano | findstr :5009');
+    console.log('  结束占用：taskkill /PID <上面查到的PID> /F');
+    console.log('  再重试：manga-panel-studio ocr');
+    return false;
+  }
+
+  // 3) Python 环境检查：路径不存在时直接给修法，而不是启动一个必崩的进程。
+  if (py !== 'python' && !fs.existsSync(py)) {
+    console.log('找不到 OCR 用的 Python：' + py);
+    console.log('  打开 http://127.0.0.1:7788/settings.html ，在「路径与端口」里填 manga-image-translator 的目录。');
+    return false;
+  }
+
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+  const logFile = path.join(LOG_DIR, 'ocr.log');
+  const out = fs.openSync(logFile, 'a');
+  console.log('OCR 服务启动中（' + py + '）');
+  console.log('  日志：' + logFile);
+  const args = [script, '--port', '5009', '--use-gpu'];
+  const child = spawn(py, args, {
+    cwd: ROOT_DIR, stdio: ['ignore', out, out], detached: true,
+  });
   child.unref();
-  return child.pid;
+
+  // 4) 等 health 就绪（最多 60 秒，模型加载慢）；失败就读日志尾部给出真相。
+  for (let i = 0; i < 30; i++) {
+    await sleep(2000);
+    if (child.exitCode !== null) {
+      console.log('OCR 进程已退出（exit code ' + child.exitCode + '），日志最后几行：');
+      printTail(logFile, 12);
+      return false;
+    }
+    const h = await get('http://127.0.0.1:5009/health');
+    if (h.ok) {
+      console.log('OCR 服务已就绪：http://127.0.0.1:5009/health');
+      console.log('  首次识别会加载模型，前几页会慢一些。');
+      return true;
+    }
+  }
+  console.log('等了 60 秒还没就绪，可能还在加载模型。日志：' + logFile);
+  printTail(logFile, 8);
+  return false;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function isPortListening(port) {
+  return new Promise((resolve) => {
+    const s = new net.Socket();
+    s.setTimeout(1500);
+    s.once('connect', () => { s.destroy(); resolve(true); });
+    s.once('timeout', () => { s.destroy(); resolve(false); });
+    s.once('error', () => resolve(false));
+    s.connect(port, '127.0.0.1');
+  });
+}
+
+function printTail(file, n) {
+  try {
+    const lines = fs.readFileSync(file, 'utf8').trimEnd().split(/\r?\n/);
+    for (const l of lines.slice(-n)) console.log('  | ' + l.slice(0, 200));
+  } catch {}
 }
 
 function get(url) {
@@ -66,18 +147,15 @@ if (cmd === 'start') {
   })();
 } else {
   if (cmd === 'ocr') {
-    const py = resolvePython();
-    console.log('OCR 服务启动中（' + py + ' server/ocr_service.py --port 5009）');
-    console.log('  首次启动要加载模型，/health 可能 20-40 秒后才通。');
-    const pid = spawnDetached(py, [path.join(ROOT_DIR, 'server', 'ocr_service.py'), '--port', '5009', '--use-gpu'], ROOT_DIR);
-    console.log('  已后台启动，pid=' + pid + '。探活：manga-panel-studio check');
+    startOcr().then((ok) => process.exit(ok ? 0 : 1));
   } else if (cmd === 'start-all') {
     console.log('启动画布（7788）+ OCR（5009）…');
-    const py = resolvePython();
-    spawnDetached(py, [path.join(ROOT_DIR, 'server', 'ocr_service.py'), '--port', '5009', '--use-gpu'], ROOT_DIR);
-    const canvas = spawn(process.execPath, [path.join(ROOT_DIR, 'server', 'canvas.mjs')], { cwd: ROOT_DIR, stdio: 'inherit' });
-    canvas.on('exit', (code) => process.exit(code ?? 0));
+    (async () => {
+      await startOcr();
+      const canvas = spawn(process.execPath, [path.join(ROOT_DIR, 'server', 'canvas.mjs')], { cwd: ROOT_DIR, stdio: 'inherit' });
+      canvas.on('exit', (code) => process.exit(code ?? 0));
+    })();
   } else {
-  console.log('manga-panel-studio <command>\n\n  start   启动画布服务（默认）\n  check   检查服务状态');
+  console.log('manga-panel-studio <command>\n\n  start      启动画布服务（默认，前台）\n  check      检查两个服务状态\n  ocr        启动 OCR 服务（5009，失败会说明原因）\n  start-all  同时启动画布 + OCR');
   }
 }
